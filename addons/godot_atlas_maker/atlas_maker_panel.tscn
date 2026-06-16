@@ -1,0 +1,226 @@
+[gd_scene load_steps=3 format=3 uid="uid://atlas_maker_panel"]
+
+[ext_resource type="Script" path="res://addons/godot_atlas_maker/atlas_maker_panel.gd" id="1_atlas"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_editor_bg"]
+bg_color = Color(0.117647, 0.129412, 0.141176, 1)
+
+[node name="AtlasMakerPanel" type="Control"]
+clip_contents = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("1_atlas")
+
+[node name="EditorBackground" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_editor_bg")
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="TopPanel" type="PanelContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="TopMargin" type="MarginContainer" parent="MarginContainer/VBoxContainer/TopPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "精灵图集制作工具"
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox"]
+layout_mode = 2
+
+[node name="ButtonsHBox" type="HBoxContainer" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="AddImagesButton" type="Button" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox"]
+layout_mode = 2
+text = "📁 添加图片"
+
+[node name="AddFolderButton" type="Button" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox"]
+layout_mode = 2
+text = "📂 添加文件夹"
+
+[node name="ClearButton" type="Button" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox"]
+layout_mode = 2
+text = "🗑️ 清空"
+
+[node name="VSeparator" type="VSeparator" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox"]
+layout_mode = 2
+
+[node name="AutoArrangeButton" type="Button" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox"]
+layout_mode = 2
+text = "✨ 自动排列"
+
+[node name="VSeparator2" type="VSeparator" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox"]
+layout_mode = 2
+
+[node name="ExportButton" type="Button" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox"]
+layout_mode = 2
+text = "💾 导出图集"
+
+[node name="SettingsHBox" type="HBoxContainer" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="AtlasSizeLabel" type="Label" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox"]
+layout_mode = 2
+text = "图集尺寸:"
+
+[node name="AtlasSizeOption" type="OptionButton" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox"]
+layout_mode = 2
+
+[node name="PaddingLabel" type="Label" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox"]
+layout_mode = 2
+text = "边距:"
+
+[node name="PaddingSpinBox" type="SpinBox" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox"]
+layout_mode = 2
+min_value = 0.0
+max_value = 32.0
+value = 2.0
+
+[node name="ImageCountLabel" type="Label" parent="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox"]
+layout_mode = 2
+text = "已加载: 0 张图片"
+
+[node name="MainHSplit" type="HSplitContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LeftPanel" type="PanelContainer" parent="MarginContainer/VBoxContainer/MainHSplit"]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LeftMargin" type="MarginContainer" parent="MarginContainer/VBoxContainer/MainHSplit/LeftPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 5
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 5
+theme_override_constants/margin_bottom = 5
+
+[node name="VBox" type="VBoxContainer" parent="MarginContainer/VBoxContainer/MainHSplit/LeftPanel/LeftMargin"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="MarginContainer/VBoxContainer/MainHSplit/LeftPanel/LeftMargin/VBox"]
+layout_mode = 2
+text = "图片列表"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer/MainHSplit/LeftPanel/LeftMargin/VBox"]
+layout_mode = 2
+
+[node name="ImageListScroll" type="ScrollContainer" parent="MarginContainer/VBoxContainer/MainHSplit/LeftPanel/LeftMargin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ImageList" type="VBoxContainer" parent="MarginContainer/VBoxContainer/MainHSplit/LeftPanel/LeftMargin/VBox/ImageListScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 5
+
+[node name="RightPanel" type="PanelContainer" parent="MarginContainer/VBoxContainer/MainHSplit"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 3.0
+
+[node name="RightMargin" type="MarginContainer" parent="MarginContainer/VBoxContainer/MainHSplit/RightPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 5
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 5
+theme_override_constants/margin_bottom = 5
+
+[node name="VBox" type="VBoxContainer" parent="MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin/VBox"]
+layout_mode = 2
+text = "预览区域（可拖动图片调整位置）"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin/VBox"]
+layout_mode = 2
+
+[node name="PreviewScroll" type="ScrollContainer" parent="MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="PreviewCanvas" type="Control" parent="MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin/VBox/PreviewScroll"]
+custom_minimum_size = Vector2(1024, 1024)
+layout_mode = 2
+
+[node name="FileDialog" type="FileDialog" parent="."]
+title = "选择图片"
+initial_position = 1
+size = Vector2i(1000, 720)
+ok_button_text = "打开"
+file_mode = 1
+access = 2
+use_native_dialog = true
+filters = PackedStringArray("*.png, *.jpg, *.jpeg, *.webp ; 图片文件")
+
+[node name="FolderDialog" type="FileDialog" parent="."]
+title = "选择文件夹"
+initial_position = 1
+size = Vector2i(1000, 720)
+ok_button_text = "选择"
+file_mode = 2
+access = 2
+use_native_dialog = true
+
+[node name="ExportDialog" type="FileDialog" parent="."]
+title = "导出图集"
+initial_position = 1
+size = Vector2i(1000, 720)
+ok_button_text = "导出"
+file_mode = 4
+access = 2
+use_native_dialog = false
+filters = PackedStringArray("*.png ; PNG 图片")
+
+[connection signal="pressed" from="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox/AddImagesButton" to="." method="_on_add_images_pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox/AddFolderButton" to="." method="_on_add_folder_pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox/ClearButton" to="." method="_on_clear_pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox/AutoArrangeButton" to="." method="_on_auto_arrange_pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox/ExportButton" to="." method="_on_export_pressed"]
+[connection signal="files_selected" from="FileDialog" to="." method="_on_files_selected"]
+[connection signal="dir_selected" from="FolderDialog" to="." method="_on_folder_selected"]
+[connection signal="file_selected" from="ExportDialog" to="." method="_on_export_file_selected"]

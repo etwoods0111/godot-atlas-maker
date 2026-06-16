@@ -1,0 +1,7 @@
+.godot/
+.import/
+*.tmp
+*.translation
+export.cfg
+export_presets.cfg
+.tmp_sprite_atlas_export_test/
