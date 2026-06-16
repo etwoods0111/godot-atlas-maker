@@ -4,6 +4,10 @@
 
 Godot Atlas Maker is a Godot 4 editor plugin for building texture atlases from many source images. It can arrange sprites, preview atlas pages, export PNG atlas sheets, and generate Godot `AtlasTexture` resources.
 
+## Preview
+
+![Godot Atlas Maker workflow screenshot](docs/images/godot-atlas-maker-workflow.png)
+
 ## Features
 
 - Batch import images or image folders.

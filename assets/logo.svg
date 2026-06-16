@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Godot Atlas Maker logo</title>
+  <desc id="desc">A stylized texture atlas grid with colorful sprite tiles and an export sparkle.</desc>
+  <defs>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#263244"/>
+      <stop offset="0.52" stop-color="#1b2430"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="atlas" x1="214" y1="196" x2="810" y2="796" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2bd4ff"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+    <linearGradient id="tileBlue" x1="276" y1="274" x2="484" y2="472" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="tileOrange" x1="520" y1="268" x2="756" y2="496" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="tilePink" x1="292" y1="542" x2="500" y2="738" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0abfc"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#020617" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="196" fill="url(#background)"/>
+  <circle cx="800" cy="214" r="126" fill="#38bdf8" opacity="0.12"/>
+  <circle cx="228" cy="806" r="148" fill="#f97316" opacity="0.10"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="190" y="178" width="644" height="644" rx="74" fill="#0f172a"/>
+    <rect x="220" y="208" width="584" height="584" rx="52" fill="#111827" stroke="url(#atlas)" stroke-width="18"/>
+
+    <path d="M220 404H804M220 604H804M404 208V792M604 208V792" stroke="#1e3a4a" stroke-width="10"/>
+    <path d="M220 404H804M220 604H804M404 208V792M604 208V792" stroke="#67e8f9" stroke-width="3" opacity="0.35"/>
+
+    <rect x="270" y="264" width="214" height="174" rx="28" fill="url(#tileBlue)"/>
+    <path d="M318 388C352 322 408 308 456 366V438H318Z" fill="#0f172a" opacity="0.28"/>
+    <circle cx="337" cy="315" r="24" fill="#e0f2fe" opacity="0.85"/>
+
+    <rect x="520" y="266" width="226" height="216" rx="30" fill="url(#tileOrange)"/>
+    <path d="M562 424L630 318L710 424Z" fill="#fff7ed" opacity="0.76"/>
+    <path d="M562 424H710L674 482H596Z" fill="#7c2d12" opacity="0.22"/>
+
+    <rect x="282" y="544" width="216" height="188" rx="30" fill="url(#tilePink)"/>
+    <path d="M320 686C354 596 424 594 466 686Z" fill="#581c87" opacity="0.26"/>
+    <path d="M346 620H434" stroke="#fdf4ff" stroke-width="18" stroke-linecap="round" opacity="0.78"/>
+
+    <rect x="548" y="548" width="178" height="178" rx="30" fill="#334155" stroke="#94a3b8" stroke-width="10"/>
+    <path d="M594 636H680M637 593V679" stroke="#a7f3d0" stroke-width="22" stroke-linecap="round"/>
+
+    <path d="M738 122L766 190L834 218L766 246L738 314L710 246L642 218L710 190Z" fill="#facc15"/>
+    <path d="M822 298L838 336L876 352L838 368L822 406L806 368L768 352L806 336Z" fill="#38bdf8"/>
+  </g>
+</svg>
