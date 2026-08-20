@@ -3,6 +3,16 @@ extends Control
 
 const AtlasPacker = preload("res://addons/godot_atlas_maker/atlas_packer.gd")
 const AtlasExporter = preload("res://addons/godot_atlas_maker/atlas_exporter.gd")
+const PreviewTransform = preload("res://addons/godot_atlas_maker/preview_transform.gd")
+const AtlasLocalization = preload("res://addons/godot_atlas_maker/atlas_localization.gd")
+const PreviewSnap = preload("res://addons/godot_atlas_maker/preview_snap.gd")
+
+const ATLAS_NAME_DIALOG_SIZE_RATIO := Vector2(0.32, 0.24)
+const ATLAS_NAME_DIALOG_MIN_SIZE := Vector2i(360, 190)
+const ATLAS_NAME_DIALOG_MAX_SIZE := Vector2i(560, 260)
+const FILE_DIALOG_SIZE_RATIO := Vector2(0.72, 0.72)
+const FILE_DIALOG_MIN_SIZE := Vector2i(760, 520)
+const FILE_DIALOG_MAX_SIZE := Vector2i(1280, 820)
 
 # UI 节点引用（延迟获取）
 var add_images_button
@@ -20,10 +30,14 @@ var export_res_check_box
 var export_mapping_check_box
 
 var image_list
+var preview_scroll
 var preview_canvas
+var preview_canvas_row
 var preview_page_bar
 var preview_page_option
 var preview_page_summary_label
+var language_toggle_button
+var snap_edges_check_box
 
 var file_dialog
 var folder_dialog
@@ -42,6 +56,12 @@ var preview_page_index: int = 0
 var pending_split_export_path: String = ""
 var pending_export_atlas_name: String = ""
 var export_button_idle_text: String = ""
+var preview_zoom: float = 1.0
+var current_locale: String = AtlasLocalization.DEFAULT_LOCALE
+var snap_edges_enabled: bool = false
+var hovered_sprite: Dictionary = {}
+var preview_canvases: Dictionary = {}
+var preview_multi_page_mode: bool = false
 
 # 拖拽相关
 var dragging_sprite: Dictionary = {}
@@ -63,11 +83,14 @@ func _ready():
 	image_count_label = $MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox/ImageCountLabel
 
 	image_list = $MarginContainer/VBoxContainer/MainHSplit/LeftPanel/LeftMargin/VBox/ImageListScroll/ImageList
+	preview_scroll = $MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin/VBox/PreviewScroll
 	preview_canvas = $MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin/VBox/PreviewScroll/PreviewCanvas
+	_setup_preview_canvas_row()
 
 	file_dialog = $FileDialog
 	folder_dialog = $FolderDialog
 	export_dialog = $ExportDialog
+	_create_language_toggle()
 	_create_export_settings_bar()
 	atlas_name_dialog = _create_atlas_name_dialog()
 	_create_preview_page_bar()
@@ -80,17 +103,18 @@ func _ready():
 	if file_dialog:
 		file_dialog.visible = false
 		file_dialog.access = FileDialog.ACCESS_FILESYSTEM
-		file_dialog.use_native_dialog = true
+		file_dialog.use_native_dialog = false
 	if folder_dialog:
 		folder_dialog.visible = false
 		folder_dialog.access = FileDialog.ACCESS_FILESYSTEM
-		folder_dialog.use_native_dialog = true
+		folder_dialog.use_native_dialog = false
 	if export_dialog:
 		export_dialog.visible = false
 		export_dialog.access = FileDialog.ACCESS_FILESYSTEM
 		export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 		export_dialog.use_native_dialog = false
 	_create_source_hint_label()
+	_apply_localization()
 
 	# 初始化图集尺寸选项
 	if atlas_size_option:
@@ -107,9 +131,10 @@ func _ready():
 
 	# 设置预览画布
 	if preview_canvas:
-		preview_canvas.custom_minimum_size = Vector2(atlas_size)
+		_update_preview_canvas_size()
 		preview_canvas.draw.connect(_on_preview_canvas_draw)
 		preview_canvas.gui_input.connect(_on_preview_canvas_input)
+		preview_canvas.mouse_exited.connect(_on_preview_canvas_mouse_exited)
 
 	print("✓ 精灵图集制作工具已初始化")
 	print("  - 已加载 UI 节点")
@@ -119,25 +144,161 @@ func _ready():
 func _notification(what):
 	if what == NOTIFICATION_RESIZED:
 		# 窗口大小改变时自动调整
-		queue_redraw()
+		_sync_preview_canvases()
+		_update_preview_page_controls()
+		_update_preview()
+
+
+func _t(key: String, replacements: Variant = null) -> String:
+	return AtlasLocalization.get_text(key, current_locale, replacements)
+
+
+func _get_scaled_popup_size(ratio: Vector2, min_size: Vector2i, max_size: Vector2i) -> Vector2i:
+	var available := get_viewport_rect().size
+	var size := Vector2i(
+		int(clampf(available.x * ratio.x, min_size.x, min(max_size.x, int(available.x * 0.92)))),
+		int(clampf(available.y * ratio.y, min_size.y, min(max_size.y, int(available.y * 0.88))))
+	)
+	return size
+
+
+func _popup_scaled_centered(window: Window, ratio: Vector2, min_size: Vector2i, max_size: Vector2i) -> void:
+	if window == null:
+		return
+
+	var popup_size := _get_scaled_popup_size(ratio, min_size, max_size)
+	window.popup_centered(popup_size)
+
+
+func _toggle_language() -> void:
+	current_locale = AtlasLocalization.toggle_locale(current_locale)
+	_apply_localization()
+
+
+func _create_language_toggle() -> void:
+	var buttons_hbox = $MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/ButtonsHBox
+	if buttons_hbox == null or buttons_hbox.has_node("LanguageToggleButton"):
+		return
+
+	language_toggle_button = Button.new()
+	language_toggle_button.name = "LanguageToggleButton"
+	language_toggle_button.flat = true
+	language_toggle_button.size_flags_horizontal = Control.SIZE_SHRINK_END
+	language_toggle_button.pressed.connect(_toggle_language)
+	buttons_hbox.add_child(language_toggle_button)
+
+
+func _apply_localization() -> void:
+	_apply_static_localization()
+	_apply_dialog_localization()
+	_apply_export_localization()
+	_update_image_list()
+	_update_preview_page_controls()
+
+
+func _apply_static_localization() -> void:
+	var title_label: Label = $MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/TitleLabel
+	var atlas_size_label: Label = $MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox/AtlasSizeLabel
+	var padding_label: Label = $MarginContainer/VBoxContainer/TopPanel/TopMargin/VBox/SettingsHBox/PaddingLabel
+	var image_list_label: Label = $MarginContainer/VBoxContainer/MainHSplit/LeftPanel/LeftMargin/VBox/Label
+	var preview_label: Label = $MarginContainer/VBoxContainer/MainHSplit/RightPanel/RightMargin/VBox/Label
+
+	title_label.text = _t("title")
+	add_images_button.text = _t("button_add_images")
+	add_folder_button.text = _t("button_add_folder")
+	clear_button.text = _t("button_clear")
+	auto_arrange_button.text = _t("button_auto_arrange")
+	export_button_idle_text = _t("button_export")
+	if export_button and not export_button.disabled:
+		export_button.text = export_button_idle_text
+	atlas_size_label.text = _t("label_atlas_size")
+	padding_label.text = _t("label_padding")
+	image_list_label.text = _t("label_image_list")
+	preview_label.text = _t("label_preview")
+
+	if language_toggle_button:
+		language_toggle_button.text = _t("button_language")
+		language_toggle_button.tooltip_text = _t("button_language_tooltip")
+
+	if file_dialog:
+		file_dialog.title = _t("file_dialog_images_title")
+		file_dialog.ok_button_text = _t("file_dialog_images_ok")
+		file_dialog.filters = PackedStringArray([_t("file_dialog_image_filter")])
+	if folder_dialog:
+		folder_dialog.title = _t("file_dialog_folder_title")
+		folder_dialog.ok_button_text = _t("file_dialog_folder_ok")
+	if export_dialog:
+		export_dialog.title = _t("file_dialog_export_title")
+		export_dialog.ok_button_text = _t("file_dialog_export_ok")
+		export_dialog.filters = PackedStringArray([_t("file_dialog_export_filter")])
+
+
+func _apply_dialog_localization() -> void:
+	if atlas_name_dialog:
+		atlas_name_dialog.title = _t("dialog_atlas_name_title")
+		atlas_name_dialog.ok_button_text = _t("dialog_atlas_name_ok")
+		atlas_name_dialog.cancel_button_text = _t("dialog_cancel")
+		var atlas_name_label := atlas_name_dialog.find_child("AtlasNameLabel", true, false) as Label
+		if atlas_name_label:
+			atlas_name_label.text = _t("dialog_atlas_name_label")
+	if atlas_name_line_edit:
+		atlas_name_line_edit.placeholder_text = _t("dialog_atlas_name_placeholder")
+
+	if size_decision_dialog:
+		size_decision_dialog.title = _t("dialog_size_title")
+		size_decision_dialog.ok_button_text = _t("dialog_size_ok")
+		size_decision_dialog.cancel_button_text = _t("dialog_cancel")
+		var custom_button := size_decision_dialog.find_child("IncreaseSizeButton", true, false) as Button
+		if custom_button:
+			custom_button.text = _t("dialog_size_custom")
+
+
+func _apply_export_localization() -> void:
+	if export_png_check_box:
+		export_png_check_box.text = _t("label_export_png")
+		export_png_check_box.tooltip_text = _t("tooltip_export_png")
+	if export_tres_check_box:
+		export_tres_check_box.text = _t("label_export_tres")
+		export_tres_check_box.tooltip_text = _t("tooltip_export_tres")
+	if export_res_check_box:
+		export_res_check_box.text = _t("label_export_res")
+		export_res_check_box.tooltip_text = _t("tooltip_export_res")
+	if export_mapping_check_box:
+		export_mapping_check_box.text = _t("label_export_mapping")
+		export_mapping_check_box.tooltip_text = _t("tooltip_export_mapping")
+
+	var export_hint := find_child("ExportNamingHint", true, false) as Label
+	if export_hint:
+		export_hint.text = _t("label_export_hint")
+
+	var source_hint := find_child("SourceHintLabel", true, false) as Label
+	if source_hint:
+		source_hint.text = _t("label_source_hint")
+
+	var preview_page_label := find_child("PreviewPageLabel", true, false) as Label
+	if preview_page_label:
+		preview_page_label.text = _t("preview_page")
+	if snap_edges_check_box:
+		snap_edges_check_box.text = _t("snap_edges")
+		snap_edges_check_box.tooltip_text = _t("snap_edges_tooltip")
 
 
 func _on_add_images_pressed():
 	print("📁 点击了添加图片按钮")
 	if file_dialog:
-		file_dialog.popup_centered()
+		_popup_scaled_centered(file_dialog, FILE_DIALOG_SIZE_RATIO, FILE_DIALOG_MIN_SIZE, FILE_DIALOG_MAX_SIZE)
 		print("  - 文件对话框已弹出")
 	else:
-		push_error("文件对话框未找到！")
+		push_error(_t("error_file_dialog_missing"))
 
 
 func _on_add_folder_pressed():
 	print("📂 点击了添加文件夹按钮")
 	if folder_dialog:
-		folder_dialog.popup_centered()
+		_popup_scaled_centered(folder_dialog, FILE_DIALOG_SIZE_RATIO, FILE_DIALOG_MIN_SIZE, FILE_DIALOG_MAX_SIZE)
 		print("  - 文件夹对话框已弹出")
 	else:
-		push_error("文件夹对话框未找到！")
+		push_error(_t("error_folder_dialog_missing"))
 
 
 func _on_clear_pressed():
@@ -145,13 +306,14 @@ func _on_clear_pressed():
 	_clear_layout_state()
 	pending_split_export_path = ""
 	pending_export_atlas_name = ""
+	_reset_preview_zoom()
 	_update_image_list()
 	_update_preview()
 
 
 func _on_auto_arrange_pressed():
 	if loaded_images.is_empty():
-		push_warning("没有加载的图片")
+		push_warning(_t("warning_no_loaded_images"))
 		return
 
 	_auto_arrange_images()
@@ -160,11 +322,11 @@ func _on_auto_arrange_pressed():
 
 func _on_export_pressed():
 	if loaded_images.is_empty():
-		push_warning("没有可导出的图片")
+		push_warning(_t("warning_no_export_images"))
 		return
 
 	if not _has_selected_export_format():
-		push_warning("请至少勾选一种导出格式：PNG图集、Godot切图资源、Godot .res图集或JSON区域映射。")
+		push_warning(_t("warning_no_export_format"))
 		return
 
 	_request_export_atlas_name()
@@ -177,7 +339,7 @@ func _request_export_atlas_name() -> void:
 		return
 
 	atlas_name_line_edit.text = _default_atlas_name()
-	atlas_name_dialog.popup_centered(Vector2i(420, 170))
+	_popup_scaled_centered(atlas_name_dialog, ATLAS_NAME_DIALOG_SIZE_RATIO, ATLAS_NAME_DIALOG_MIN_SIZE, ATLAS_NAME_DIALOG_MAX_SIZE)
 	atlas_name_line_edit.grab_focus()
 	atlas_name_line_edit.select_all()
 
@@ -194,7 +356,7 @@ func _on_export_name_confirmed() -> void:
 	var raw_name: String = atlas_name_line_edit.text if atlas_name_line_edit else ""
 	var atlas_name := _safe_export_name(raw_name)
 	if atlas_name.is_empty():
-		push_warning("请输入图集名称")
+		push_warning(_t("warning_enter_atlas_name"))
 		_request_export_atlas_name()
 		return
 
@@ -218,7 +380,7 @@ func _popup_export_dialog_for_atlas_name() -> void:
 		export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 		export_dialog.use_native_dialog = false
 		export_dialog.current_file = pending_export_atlas_name + ".png"
-		export_dialog.popup_centered()
+		_popup_scaled_centered(export_dialog, FILE_DIALOG_SIZE_RATIO, FILE_DIALOG_MIN_SIZE, FILE_DIALOG_MAX_SIZE)
 
 
 func _on_files_selected(paths: PackedStringArray):
@@ -276,16 +438,16 @@ func _set_export_busy(is_busy: bool) -> void:
 
 	export_button.disabled = is_busy
 	if is_busy:
-		export_button.text = "导出中..."
+		export_button.text = _t("button_export_busy")
 	else:
-		export_button.text = export_button_idle_text if not export_button_idle_text.is_empty() else "导出"
+		export_button.text = export_button_idle_text if not export_button_idle_text.is_empty() else _t("button_export")
 
 
 func _on_atlas_size_changed(index: int):
 	var size = atlas_size_option.get_item_id(index)
 	atlas_size = Vector2i(size, size)
 	_clear_layout_state()
-	preview_canvas.custom_minimum_size = Vector2(atlas_size)
+	_update_preview_canvas_size()
 	preview_canvas.queue_redraw()
 
 
@@ -307,7 +469,7 @@ func _load_image(path: String):
 		_clear_layout_state()
 		print("✓ 已加载: ", path)
 	else:
-		push_warning("无法加载图片：%s" % path)
+		push_warning(_t("warning_load_image_failed", [path]))
 
 
 func _load_texture_from_path(path: String) -> Texture2D:
@@ -341,7 +503,7 @@ func _update_image_list():
 		image_list.add_child(item)
 
 	# 更新计数
-	image_count_label.text = "已加载: %d 张图片" % loaded_images.size()
+	image_count_label.text = _t("label_image_count", [loaded_images.size()])
 
 
 func _create_image_list_item(img_data: Dictionary, index: int) -> Control:
@@ -393,30 +555,35 @@ func _create_export_settings_bar() -> void:
 	export_settings_hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	export_png_check_box = CheckBox.new()
+	export_png_check_box.name = "ExportPngCheckBox"
 	export_png_check_box.text = "PNG图集"
 	export_png_check_box.button_pressed = true
 	export_png_check_box.tooltip_text = "生成合并后的 PNG 图集。默认会保存到同名导出文件夹内，适合 Web 发布。"
 	export_settings_hbox.add_child(export_png_check_box)
 
 	export_tres_check_box = CheckBox.new()
+	export_tres_check_box.name = "ExportTresCheckBox"
 	export_tres_check_box.text = "Godot切图资源(.tres)"
 	export_tres_check_box.button_pressed = true
 	export_tres_check_box.tooltip_text = "为每个素材生成 AtlasTexture .tres，直接引用 PNG 图集中的对应区域，可在 Godot 里直接拖用。"
 	export_settings_hbox.add_child(export_tres_check_box)
 
 	export_res_check_box = CheckBox.new()
+	export_res_check_box.name = "ExportResCheckBox"
 	export_res_check_box.text = "Godot .res图集"
 	export_res_check_box.button_pressed = false
 	export_res_check_box.tooltip_text = "额外生成二进制 .res 图集纹理。会增加文件体积，通常只在确实需要纯 Godot 资源链路时启用。"
 	export_settings_hbox.add_child(export_res_check_box)
 
 	export_mapping_check_box = CheckBox.new()
+	export_mapping_check_box.name = "ExportMappingCheckBox"
 	export_mapping_check_box.text = "JSON区域映射"
 	export_mapping_check_box.button_pressed = false
 	export_mapping_check_box.tooltip_text = "额外生成 JSON，记录每个素材在图集中的 x/y/w/h 区域和多页信息，适合自定义运行时代码或外部工具读取。"
 	export_settings_hbox.add_child(export_mapping_check_box)
 
 	var naming_hint := Label.new()
+	naming_hint.name = "ExportNamingHint"
 	naming_hint.text = "导出时输入图集名称；PNG、.tres、.res 和 JSON 都会保存到同名文件夹内。"
 	naming_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	naming_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -438,6 +605,7 @@ func _create_atlas_name_dialog() -> ConfirmationDialog:
 	dialog.canceled.connect(_on_export_name_canceled)
 
 	var margin := MarginContainer.new()
+	margin.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	margin.add_theme_constant_override("margin_left", 8)
 	margin.add_theme_constant_override("margin_top", 8)
 	margin.add_theme_constant_override("margin_right", 8)
@@ -445,17 +613,19 @@ func _create_atlas_name_dialog() -> ConfirmationDialog:
 	dialog.add_child(margin)
 
 	var vbox := VBoxContainer.new()
+	vbox.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	vbox.add_theme_constant_override("separation", 8)
 	margin.add_child(vbox)
 
 	var label := Label.new()
+	label.name = "AtlasNameLabel"
 	label.text = "该名称会用于导出文件夹、PNG 文件、.res 文件和 JSON 映射文件。"
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(label)
 
 	atlas_name_line_edit = LineEdit.new()
 	atlas_name_line_edit.placeholder_text = "例如 male_default_idle"
-	atlas_name_line_edit.custom_minimum_size = Vector2(320, 0)
+	atlas_name_line_edit.custom_minimum_size = Vector2(320, 32)
 	atlas_name_line_edit.text_submitted.connect(_on_export_name_submitted)
 	vbox.add_child(atlas_name_line_edit)
 
@@ -478,6 +648,61 @@ func _create_source_hint_label() -> void:
 	top_vbox.move_child(hint_label, 6)
 
 
+func _setup_preview_canvas_row() -> void:
+	if preview_scroll == null or preview_canvas == null:
+		return
+	if preview_canvas_row != null:
+		return
+
+	preview_canvas_row = HBoxContainer.new()
+	preview_canvas_row.name = "PreviewCanvasRow"
+	preview_canvas_row.add_theme_constant_override("separation", 12)
+	preview_canvas_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_canvas_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	preview_scroll.remove_child(preview_canvas)
+	preview_scroll.add_child(preview_canvas_row)
+	preview_canvas_row.add_child(preview_canvas)
+	preview_canvases[0] = preview_canvas
+
+
+func _should_show_preview_pages_side_by_side() -> bool:
+	if atlas_pages.size() <= 1 or preview_scroll == null:
+		return false
+
+	var available_width := maxf(preview_scroll.size.x, preview_scroll.get_viewport_rect().size.x * 0.5)
+	var required_width: float = (float(atlas_size.x) * preview_zoom * atlas_pages.size()) + (12.0 * max(0, atlas_pages.size() - 1))
+	return required_width <= available_width
+
+
+func _sync_preview_canvases() -> void:
+	if preview_canvas_row == null or preview_canvas == null:
+		return
+
+	preview_multi_page_mode = _should_show_preview_pages_side_by_side()
+	var required_count := atlas_pages.size() if preview_multi_page_mode else 1
+	required_count = maxi(required_count, 1)
+
+	for page_index: int in required_count:
+		if preview_canvases.has(page_index):
+			continue
+		var canvas := Control.new()
+		canvas.name = "PreviewCanvasPage%d" % (page_index + 1)
+		canvas.mouse_filter = Control.MOUSE_FILTER_STOP
+		canvas.draw.connect(_on_preview_canvas_page_draw.bind(page_index))
+		canvas.gui_input.connect(_on_preview_canvas_page_input.bind(page_index))
+		canvas.mouse_exited.connect(_on_preview_canvas_mouse_exited)
+		preview_canvas_row.add_child(canvas)
+		preview_canvases[page_index] = canvas
+
+	for page_index: int in preview_canvases.keys():
+		var canvas := preview_canvases[page_index] as Control
+		canvas.visible = page_index < required_count
+		canvas.custom_minimum_size = Vector2(atlas_size) * preview_zoom
+		canvas.queue_redraw()
+
+	preview_page_index = clampi(preview_page_index, 0, max(0, atlas_pages.size() - 1))
+
+
 func _remove_image(index: int):
 	if index >= 0 and index < loaded_images.size():
 		loaded_images.remove_at(index)
@@ -491,11 +716,18 @@ func _create_preview_page_bar() -> void:
 
 	preview_page_bar = HBoxContainer.new()
 	preview_page_bar.name = "PreviewPageBar"
-	preview_page_bar.visible = false
+	preview_page_bar.visible = true
 	preview_page_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preview_page_bar.add_theme_constant_override("separation", 8)
 
+	snap_edges_check_box = CheckBox.new()
+	snap_edges_check_box.name = "SnapEdgesCheckBox"
+	snap_edges_check_box.button_pressed = snap_edges_enabled
+	snap_edges_check_box.toggled.connect(_on_snap_edges_toggled)
+	preview_page_bar.add_child(snap_edges_check_box)
+
 	var page_label := Label.new()
+	page_label.name = "PreviewPageLabel"
 	page_label.text = "图集页:"
 	preview_page_bar.add_child(page_label)
 
@@ -512,6 +744,10 @@ func _create_preview_page_bar() -> void:
 	right_vbox.move_child(preview_page_bar, 2)
 
 
+func _on_snap_edges_toggled(enabled: bool) -> void:
+	snap_edges_enabled = enabled
+
+
 func _create_size_decision_dialog() -> ConfirmationDialog:
 	var dialog := ConfirmationDialog.new()
 	dialog.name = "AtlasSizeDecisionDialog"
@@ -521,7 +757,9 @@ func _create_size_decision_dialog() -> ConfirmationDialog:
 	dialog.dialog_text = ""
 	dialog.confirmed.connect(_on_use_multiple_pages_confirmed)
 	dialog.custom_action.connect(_on_size_decision_custom_action)
-	dialog.add_button("改用更大尺寸", false, "increase_size")
+	var custom_button := dialog.add_button("改用更大尺寸", false, "increase_size")
+	if custom_button:
+		custom_button.name = "IncreaseSizeButton"
 	add_child(dialog)
 	return dialog
 
@@ -531,36 +769,90 @@ func _clear_layout_state() -> void:
 	atlas_pages.clear()
 	preview_page_index = 0
 	dragging_sprite = {}
+	hovered_sprite = {}
 	_update_preview_page_controls()
 
 
 func _update_preview():
-	preview_canvas.queue_redraw()
+	for canvas: Control in preview_canvases.values():
+		canvas.queue_redraw()
+
+
+func _update_preview_canvas_size() -> void:
+	if preview_canvas == null:
+		return
+
+	_sync_preview_canvases()
+
+
+func _reset_preview_zoom() -> void:
+	preview_zoom = 1.0
+	_update_preview_canvas_size()
+	if preview_scroll:
+		preview_scroll.scroll_horizontal = 0
+		preview_scroll.scroll_vertical = 0
+
+
+func _canvas_to_atlas(position: Vector2) -> Vector2:
+	return PreviewTransform.canvas_to_atlas(position, preview_zoom)
+
+
+func _atlas_rect_to_canvas(rect: Rect2) -> Rect2:
+	return PreviewTransform.atlas_rect_to_canvas(rect, preview_zoom)
+
+
+func _apply_preview_zoom(mouse_position: Vector2, requested_zoom: float) -> void:
+	if preview_scroll == null:
+		return
+
+	var next_zoom := PreviewTransform.clamp_zoom(requested_zoom)
+	if is_equal_approx(next_zoom, preview_zoom):
+		return
+
+	var scroll_offset := Vector2(preview_scroll.scroll_horizontal, preview_scroll.scroll_vertical)
+	var next_scroll := PreviewTransform.zoom_scroll_offset(mouse_position, scroll_offset, preview_zoom, next_zoom)
+	preview_zoom = next_zoom
+	_update_preview_canvas_size()
+	await get_tree().process_frame
+	preview_scroll.scroll_horizontal = maxi(0, int(round(next_scroll.x)))
+	preview_scroll.scroll_vertical = maxi(0, int(round(next_scroll.y)))
+	_update_preview()
 
 
 func _on_preview_canvas_draw():
-	var canvas = preview_canvas
+	_draw_preview_page(preview_canvas, preview_page_index)
 
-	# 绘制背景网格
+
+func _on_preview_canvas_page_draw(page_index: int) -> void:
+	var canvas := preview_canvases.get(page_index) as Control
+	_draw_preview_page(canvas, page_index)
+
+
+func _draw_preview_page(canvas: Control, page_index: int) -> void:
+	if canvas == null:
+		return
+
 	_draw_grid(canvas)
+	canvas.draw_rect(_atlas_rect_to_canvas(Rect2(Vector2.ZERO, atlas_size)), Color.WHITE, false, 2.0)
 
-	# 绘制边框
-	canvas.draw_rect(Rect2(Vector2.ZERO, atlas_size), Color.WHITE, false, 2.0)
-
-	# 绘制当前图集页的图片
-	for preview_item: Dictionary in _get_current_preview_items():
-		var rect: Rect2 = preview_item["rect"]
+	for preview_item: Dictionary in _get_preview_items_for_page(page_index):
+		var rect: Rect2 = _atlas_rect_to_canvas(preview_item["rect"])
 		var texture: Texture2D = preview_item["texture"]
-
-		# 绘制图片
 		canvas.draw_texture_rect(texture, rect, false)
 
-		# 绘制边框
-		canvas.draw_rect(rect, Color(0, 1, 1, 0.5), false, 1.0)
+		var is_hovered := (
+			not hovered_sprite.is_empty()
+			and int(hovered_sprite.get("image_index", -1)) == int(preview_item["index"])
+			and int(hovered_sprite.get("page_index", -1)) == page_index
+		)
+		var border_color := Color(1.0, 0.78, 0.18, 1.0) if is_hovered else Color(0, 1, 1, 0.5)
+		var border_width := 3.0 if is_hovered else 1.0
+		if is_hovered:
+			canvas.draw_rect(rect, Color(1.0, 0.78, 0.18, 0.18), true)
+		canvas.draw_rect(rect, border_color, false, border_width)
 
-		# 绘制名称
 		var font = canvas.get_theme_default_font()
-		var font_size = 12
+		var font_size = maxi(10, int(round(12.0 * preview_zoom)))
 		canvas.draw_string(font, rect.position + Vector2(2, 15), preview_item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 
@@ -570,20 +862,39 @@ func _draw_grid(canvas: Control):
 
 	# 垂直线
 	for x in range(0, atlas_size.x, grid_size):
-		canvas.draw_line(Vector2(x, 0), Vector2(x, atlas_size.y), grid_color, 1.0)
+		var canvas_x := PreviewTransform.atlas_to_canvas(Vector2(x, 0), preview_zoom).x
+		var canvas_height := float(atlas_size.y) * preview_zoom
+		canvas.draw_line(Vector2(canvas_x, 0), Vector2(canvas_x, canvas_height), grid_color, 1.0)
 
 	# 水平线
 	for y in range(0, atlas_size.y, grid_size):
-		canvas.draw_line(Vector2(0, y), Vector2(atlas_size.x, y), grid_color, 1.0)
+		var canvas_y := PreviewTransform.atlas_to_canvas(Vector2(0, y), preview_zoom).y
+		var canvas_width := float(atlas_size.x) * preview_zoom
+		canvas.draw_line(Vector2(0, canvas_y), Vector2(canvas_width, canvas_y), grid_color, 1.0)
 
 
 func _on_preview_canvas_input(event: InputEvent):
+	_handle_preview_canvas_input(event, preview_page_index)
+
+
+func _on_preview_canvas_page_input(event: InputEvent, page_index: int) -> void:
+	_handle_preview_canvas_input(event, page_index)
+
+
+func _handle_preview_canvas_input(event: InputEvent, page_index: int) -> void:
 	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_LEFT:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+			_apply_preview_zoom(event.position, preview_zoom * PreviewTransform.ZOOM_STEP)
+			accept_event()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+			_apply_preview_zoom(event.position, preview_zoom / PreviewTransform.ZOOM_STEP)
+			accept_event()
+		elif event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
-				# 开始拖拽
-				var mouse_pos = event.position
-				for preview_item: Dictionary in _get_current_preview_items():
+				preview_page_index = clampi(page_index, 0, max(0, atlas_pages.size() - 1))
+				_apply_page_rects_to_loaded_images(preview_page_index)
+				var mouse_pos := _canvas_to_atlas(event.position)
+				for preview_item: Dictionary in _get_preview_items_for_page(preview_page_index):
 					var rect: Rect2 = preview_item["rect"]
 					if rect.has_point(mouse_pos):
 						dragging_sprite = {
@@ -593,21 +904,59 @@ func _on_preview_canvas_input(event: InputEvent):
 						drag_offset = mouse_pos - rect.position
 						break
 			else:
-				# 结束拖拽
 				dragging_sprite = {}
 
 	elif event is InputEventMouseMotion:
+		_update_hovered_sprite(event.position, page_index)
 		if not dragging_sprite.is_empty():
-			# 拖动图片
 			var image_index: int = dragging_sprite.get("image_index", -1)
 			if image_index < 0 or image_index >= loaded_images.size():
 				return
 
 			var current_rect := _get_preview_rect_for_image(image_index)
-			var new_pos: Vector2 = event.position - drag_offset
+			var new_pos: Vector2 = _canvas_to_atlas(event.position) - drag_offset
 			var clamped_pos: Vector2 = new_pos.clamp(Vector2.ZERO, Vector2(atlas_size) - current_rect.size)
+			if snap_edges_enabled:
+				clamped_pos = _snap_preview_position(image_index, clamped_pos, current_rect.size)
 			_set_preview_rect_for_image(image_index, Rect2(clamped_pos, current_rect.size))
 			_update_preview()
+
+
+func _on_preview_canvas_mouse_exited() -> void:
+	if hovered_sprite.is_empty():
+		return
+	hovered_sprite = {}
+	_update_preview()
+
+
+func _update_hovered_sprite(canvas_position: Vector2, page_index: int) -> void:
+	var atlas_position := _canvas_to_atlas(canvas_position)
+	var next_hover := _find_topmost_preview_item_at(atlas_position, page_index)
+	if next_hover == hovered_sprite:
+		return
+	hovered_sprite = next_hover
+	_update_preview()
+
+
+func _find_topmost_preview_item_at(atlas_position: Vector2, page_index: int) -> Dictionary:
+	var items := _get_preview_items_for_page(page_index)
+	for i: int in range(items.size() - 1, -1, -1):
+		var item: Dictionary = items[i]
+		var rect: Rect2 = item["rect"]
+		if rect.has_point(atlas_position):
+			return {
+				"image_index": item["index"],
+				"page_index": page_index,
+			}
+	return {}
+
+
+func _snap_preview_position(image_index: int, position: Vector2, rect_size: Vector2) -> Vector2:
+	var other_rects: Array = []
+	for item: Dictionary in _get_preview_items_for_page(preview_page_index):
+		if int(item["index"]) != image_index:
+			other_rects.append(item["rect"])
+	return PreviewSnap.snap_position(position, rect_size, Vector2(atlas_size), other_rects)
 
 
 func _auto_arrange_images():
@@ -629,7 +978,7 @@ func _auto_arrange_images():
 	if not unplaced_indices.is_empty():
 		for index: int in unplaced_indices:
 			unplaced_image_indices.append(index)
-		push_warning("图集尺寸不够，%d 张图片未能放入：%s。" % [unplaced_indices.size(), str(unplaced_indices)])
+		push_warning(_t("warning_unplaced_images", [unplaced_indices.size(), str(unplaced_indices)]))
 		_request_size_decision()
 
 	print("✓ 自动排列完成（MaxRects：已放置 %d/%d）" % [placed_indices.size(), loaded_images.size()])
@@ -654,7 +1003,7 @@ func _export_atlas(output_path: String):
 
 	var result: Dictionary = AtlasExporter.export_atlas(export_items, atlas_size, normalized_output_path, _build_export_options())
 	if result.get("error", FAILED) != OK:
-		push_error("❌ 导出失败: %s" % result.get("message", "未知错误"))
+		push_error(_t("error_export_failed", [result.get("message", "Unknown error")]))
 		return
 
 	_print_single_export_success(result, normalized_output_path)
@@ -689,13 +1038,13 @@ func _request_size_decision(output_path: String = "") -> void:
 	var multi_page_result := AtlasPacker.pack_multiple(_get_image_sizes(), atlas_size, padding)
 	var page_count: int = multi_page_result.get("pages", []).size()
 	var next_size := _find_next_fitting_atlas_size()
-	var size_text := "%d x %d" % [next_size, next_size] if next_size > 0 else "没有可用的更大预设尺寸"
+	var size_text := "%d x %d" % [next_size, next_size] if next_size > 0 else _t("dialog_size_unavailable")
 
-	size_decision_dialog.dialog_text = (
-		"当前 %d x %d 图集无法容纳全部图片，仍有 %d 张未放入。\n\n"
-		+ "可以按当前尺寸拆分为 %d 个图集页，或改用更大尺寸：%s。"
-	) % [atlas_size.x, atlas_size.y, unplaced_image_indices.size(), page_count, size_text]
-	size_decision_dialog.popup_centered(Vector2i(520, 220))
+	size_decision_dialog.dialog_text = _t(
+		"dialog_size_text",
+		[atlas_size.x, atlas_size.y, unplaced_image_indices.size(), page_count, size_text]
+	)
+	_popup_scaled_centered(size_decision_dialog, Vector2(0.42, 0.28), Vector2i(480, 220), Vector2i(720, 340))
 
 
 func _on_use_multiple_pages_confirmed() -> void:
@@ -739,11 +1088,11 @@ func _apply_multiple_page_layout() -> bool:
 		unplaced_image_indices.append(index)
 
 	if not unplaced_indices.is_empty():
-		push_error("当前图集尺寸下仍有图片单张过大，无法拆分放入。请改用更大尺寸。未放入索引：%s" % str(unplaced_indices))
+		push_error(_t("error_page_item_too_large", [str(unplaced_indices)]))
 		return false
 
 	if pages.is_empty():
-		push_error("无法生成多图集布局。")
+		push_error(_t("error_page_layout_failed"))
 		return false
 
 	atlas_pages.clear()
@@ -761,7 +1110,7 @@ func _apply_multiple_page_layout() -> bool:
 func _apply_next_fitting_atlas_size() -> bool:
 	var next_size := _find_next_fitting_atlas_size()
 	if next_size <= 0:
-		push_error("没有找到能容纳全部图片的更大预设尺寸，请减少图片或手动拆分素材。")
+		push_error(_t("error_no_larger_size"))
 		return false
 
 	_set_atlas_size(next_size)
@@ -795,14 +1144,14 @@ func _set_atlas_size(size: int) -> void:
 				atlas_size_option.select(i)
 				break
 	if preview_canvas:
-		preview_canvas.custom_minimum_size = Vector2(atlas_size)
+		_update_preview_canvas_size()
 
 
 func _export_preview_pages(output_path: String) -> void:
 	var export_items := _build_export_items(false)
 	var result: Dictionary = AtlasExporter.export_atlas_pages(export_items, atlas_pages, atlas_size, output_path, _build_export_options())
 	if result.get("error", FAILED) != OK:
-		push_error("❌ 拆分导出失败: %s" % result.get("message", "未知错误"))
+		push_error(_t("error_split_export_failed", [result.get("message", "Unknown error")]))
 		return
 
 	_print_multi_export_success(result)
@@ -812,17 +1161,24 @@ func _update_preview_page_controls() -> void:
 	if preview_page_bar == null or preview_page_option == null or preview_page_summary_label == null:
 		return
 
-	preview_page_bar.visible = atlas_pages.size() > 1
+	_sync_preview_canvases()
+	preview_page_bar.visible = true
+	var show_page_picker := atlas_pages.size() > 1 and not preview_multi_page_mode
+	var preview_page_label := find_child("PreviewPageLabel", true, false) as Label
+	if preview_page_label:
+		preview_page_label.visible = show_page_picker
+	preview_page_option.visible = show_page_picker
+	preview_page_summary_label.visible = show_page_picker
 	preview_page_option.clear()
 	for page_index: int in atlas_pages.size():
 		var page: Dictionary = atlas_pages[page_index]
 		var item_indices: Array = page.get("item_indices", [])
-		preview_page_option.add_item("第 %d 页 (%d 张)" % [page_index + 1, item_indices.size()], page_index)
+		preview_page_option.add_item(_t("preview_page_item", [page_index + 1, item_indices.size()]), page_index)
 
 	if not atlas_pages.is_empty():
 		preview_page_index = clampi(preview_page_index, 0, atlas_pages.size() - 1)
 		preview_page_option.select(preview_page_index)
-		preview_page_summary_label.text = "共 %d 页，当前尺寸 %d x %d" % [atlas_pages.size(), atlas_size.x, atlas_size.y]
+		preview_page_summary_label.text = _t("preview_page_summary", [atlas_pages.size(), atlas_size.x, atlas_size.y])
 	else:
 		preview_page_index = 0
 		preview_page_summary_label.text = ""
@@ -852,6 +1208,10 @@ func _apply_page_rects_to_loaded_images(page_index: int) -> void:
 
 
 func _get_current_preview_items() -> Array[Dictionary]:
+	return _get_preview_items_for_page(preview_page_index)
+
+
+func _get_preview_items_for_page(page_index: int) -> Array[Dictionary]:
 	var items: Array[Dictionary] = []
 
 	if atlas_pages.is_empty():
@@ -865,10 +1225,10 @@ func _get_current_preview_items() -> Array[Dictionary]:
 			})
 		return items
 
-	if preview_page_index < 0 or preview_page_index >= atlas_pages.size():
+	if page_index < 0 or page_index >= atlas_pages.size():
 		return items
 
-	var page: Dictionary = atlas_pages[preview_page_index]
+	var page: Dictionary = atlas_pages[page_index]
 	var item_indices: Array = page.get("item_indices", [])
 	var rects_by_index: Dictionary = page.get("rects_by_index", {})
 	for image_index: int in item_indices:

@@ -1,5 +1,5 @@
 @tool
-class_name SpriteAtlasPacker
+class_name GodotAtlasPacker
 extends RefCounted
 
 

@@ -18,6 +18,9 @@ Godot Atlas Maker 是一个 Godot 4 编辑器插件，用于把多张图片制�
 - 在不导出 PNG 时，可导出运行时使用的 `.res` 图集纹理资源。
 - 导出 JSON 区域映射文件，方便其他工具链读取。
 - 当图片数量或尺寸超过单张图集容量时，可拆分为多页图集。
+- 并排预览所有图集页，并支持鼠标滚轮缩放和悬停高亮。
+- 手动调整图片时，可吸附到图集边界和相邻图片边缘。
+- 可在中文和英文编辑器界面之间切换。
 
 ## 适用场景
 
@@ -89,6 +92,9 @@ res://addons/godot_atlas_maker
 ```powershell
 godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_atlas_packer.gd
 godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_atlas_exporter.gd
+godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_atlas_localization.gd
+godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_preview_transform.gd
+godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_preview_snap.gd
 ```
 
 ## 目录结构

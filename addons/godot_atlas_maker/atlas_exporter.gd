@@ -1,5 +1,5 @@
 @tool
-class_name SpriteAtlasExporter
+class_name GodotAtlasExporter
 extends RefCounted
 
 const AtlasPacker = preload("res://addons/godot_atlas_maker/atlas_packer.gd")

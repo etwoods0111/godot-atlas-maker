@@ -18,6 +18,9 @@ Godot Atlas Maker is a Godot 4 editor plugin for building texture atlases from m
 - Export runtime `.res` atlas texture resources when PNG output is disabled.
 - Export JSON region maps.
 - Split oversized sprite sets into multiple atlas pages.
+- Preview all atlas pages side by side, with mouse-wheel zoom and hover highlighting.
+- Snap manually positioned sprites to atlas boundaries and neighboring sprite edges.
+- Switch the editor interface between English and Chinese.
 
 ## Installation
 
@@ -37,6 +40,9 @@ Run the lightweight script tests from the repository root with Godot 4:
 ```powershell
 godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_atlas_packer.gd
 godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_atlas_exporter.gd
+godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_atlas_localization.gd
+godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_preview_transform.gd
+godot --headless --path . --script res://addons/godot_atlas_maker/tests/test_preview_snap.gd
 ```
 
 ## Repository Layout
