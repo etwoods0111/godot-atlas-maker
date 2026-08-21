@@ -40,6 +40,8 @@ var preview_page_bar
 var preview_page_option
 var preview_page_summary_label
 var move_sprite_button
+var preview_feedback_label
+var preview_feedback_timer
 var language_toggle_button
 var snap_edges_check_box
 
@@ -103,6 +105,7 @@ func _ready():
 	atlas_name_dialog = _create_atlas_name_dialog()
 	_create_preview_page_bar()
 	_create_move_sprite_button()
+	_create_preview_feedback_label()
 	size_decision_dialog = _create_size_decision_dialog()
 
 	# 等待父节点准备好
@@ -770,9 +773,9 @@ func _create_move_sprite_button() -> void:
 	move_sprite_button.add_theme_font_size_override("font_size", 11)
 	move_sprite_button.add_theme_color_override("font_color", Color(0.94, 0.98, 1.0))
 	move_sprite_button.add_theme_color_override("font_hover_color", Color.WHITE)
-	move_sprite_button.add_theme_stylebox_override("normal", _make_move_button_style(Color(0.08, 0.16, 0.21, 0.94), Color(0.62, 0.9, 1.0, 0.95)))
-	move_sprite_button.add_theme_stylebox_override("hover", _make_move_button_style(Color(0.12, 0.28, 0.36, 0.98), Color(0.82, 0.96, 1.0, 1.0)))
-	move_sprite_button.add_theme_stylebox_override("pressed", _make_move_button_style(Color(0.05, 0.11, 0.15, 0.98), Color(0.5, 0.82, 0.95, 1.0)))
+	move_sprite_button.add_theme_stylebox_override("normal", _make_move_button_style(Color(0.04, 0.1, 0.14, 0.78), Color(0.68, 0.92, 1.0, 1.0)))
+	move_sprite_button.add_theme_stylebox_override("hover", _make_move_button_style(Color(0.08, 0.24, 0.32, 0.9), Color(0.9, 0.98, 1.0, 1.0)))
+	move_sprite_button.add_theme_stylebox_override("pressed", _make_move_button_style(Color(0.03, 0.08, 0.12, 0.86), Color(0.56, 0.86, 1.0, 1.0)))
 	move_sprite_button.get_popup().id_pressed.connect(_on_move_target_page_selected)
 	preview_canvas.add_child(move_sprite_button)
 
@@ -781,13 +784,74 @@ func _make_move_button_style(background_color: Color, outline_color: Color) -> S
 	var style := StyleBoxFlat.new()
 	style.bg_color = background_color
 	style.border_color = outline_color
-	style.set_border_width_all(1)
+	style.set_border_width_all(2)
 	style.set_corner_radius_all(3)
 	style.content_margin_left = 7
 	style.content_margin_right = 7
 	style.content_margin_top = 3
 	style.content_margin_bottom = 3
 	return style
+
+
+func _create_preview_feedback_label() -> void:
+	if preview_canvas == null or preview_feedback_label != null:
+		return
+
+	preview_feedback_label = Label.new()
+	preview_feedback_label.name = "PreviewFeedbackLabel"
+	preview_feedback_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview_feedback_label.custom_minimum_size = Vector2(300, 40)
+	preview_feedback_label.size = Vector2(300, 40)
+	preview_feedback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	preview_feedback_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	preview_feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	preview_feedback_label.add_theme_font_size_override("font_size", 12)
+	preview_feedback_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.82, 1.0))
+	preview_feedback_label.add_theme_stylebox_override("normal", _make_preview_feedback_style())
+	preview_feedback_label.z_index = 20
+	preview_feedback_label.visible = false
+	preview_canvas.add_child(preview_feedback_label)
+
+	preview_feedback_timer = Timer.new()
+	preview_feedback_timer.one_shot = true
+	preview_feedback_timer.wait_time = 4.0
+	preview_feedback_timer.timeout.connect(_hide_preview_feedback)
+	add_child(preview_feedback_timer)
+
+
+func _make_preview_feedback_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.22, 0.09, 0.03, 0.86)
+	style.border_color = Color(1.0, 0.64, 0.2, 1.0)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	return style
+
+
+func _show_preview_feedback(message: String) -> void:
+	if preview_feedback_label == null:
+		return
+
+	var selected_page: int = selected_sprite.get("page_index", preview_page_index)
+	var canvas_page_index := selected_page if preview_multi_page_mode else 0
+	var target_canvas := preview_canvases.get(canvas_page_index) as Control
+	if target_canvas == null:
+		return
+	if preview_feedback_label.get_parent() != target_canvas:
+		preview_feedback_label.reparent(target_canvas)
+	preview_feedback_label.position = Vector2(maxf(8.0, (target_canvas.size.x - preview_feedback_label.size.x) * 0.5), 10.0)
+	preview_feedback_label.text = message
+	preview_feedback_label.visible = true
+	preview_feedback_timer.start()
+
+
+func _hide_preview_feedback() -> void:
+	if preview_feedback_label:
+		preview_feedback_label.visible = false
 
 
 func _create_size_decision_dialog() -> ConfirmationDialog:
@@ -1379,7 +1443,9 @@ func _on_move_target_page_selected(target_page_index: int) -> void:
 	_configure_page_layout()
 	var result := atlas_page_layout.move_item_to_first_fit(image_index, target_page_index)
 	if not result.get("ok", false):
-		push_warning(_t("warning_page_move_no_space"))
+		var warning_text := _t("warning_page_move_no_space")
+		push_warning(warning_text)
+		_show_preview_feedback(warning_text)
 		return
 
 	var resolved_target_page := atlas_page_layout.get_item_page(image_index)
