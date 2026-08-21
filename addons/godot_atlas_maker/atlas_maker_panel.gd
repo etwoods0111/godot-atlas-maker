@@ -763,12 +763,31 @@ func _create_move_sprite_button() -> void:
 
 	move_sprite_button = MenuButton.new()
 	move_sprite_button.name = "MoveSpriteButton"
-	move_sprite_button.custom_minimum_size = Vector2(64, 24)
-	move_sprite_button.size = Vector2(64, 24)
+	move_sprite_button.custom_minimum_size = Vector2(76, 26)
+	move_sprite_button.size = Vector2(76, 26)
 	move_sprite_button.z_index = 10
 	move_sprite_button.visible = false
+	move_sprite_button.add_theme_font_size_override("font_size", 11)
+	move_sprite_button.add_theme_color_override("font_color", Color(0.94, 0.98, 1.0))
+	move_sprite_button.add_theme_color_override("font_hover_color", Color.WHITE)
+	move_sprite_button.add_theme_stylebox_override("normal", _make_move_button_style(Color(0.08, 0.16, 0.21, 0.94), Color(0.62, 0.9, 1.0, 0.95)))
+	move_sprite_button.add_theme_stylebox_override("hover", _make_move_button_style(Color(0.12, 0.28, 0.36, 0.98), Color(0.82, 0.96, 1.0, 1.0)))
+	move_sprite_button.add_theme_stylebox_override("pressed", _make_move_button_style(Color(0.05, 0.11, 0.15, 0.98), Color(0.5, 0.82, 0.95, 1.0)))
 	move_sprite_button.get_popup().id_pressed.connect(_on_move_target_page_selected)
 	preview_canvas.add_child(move_sprite_button)
+
+
+func _make_move_button_style(background_color: Color, outline_color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background_color
+	style.border_color = outline_color
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	style.content_margin_left = 7
+	style.content_margin_right = 7
+	style.content_margin_top = 3
+	style.content_margin_bottom = 3
+	return style
 
 
 func _create_size_decision_dialog() -> ConfirmationDialog:
@@ -891,8 +910,7 @@ func _draw_preview_page(canvas: Control, page_index: int) -> void:
 
 		var font = canvas.get_theme_default_font()
 		var font_size = maxi(10, int(round(12.0 * preview_zoom)))
-		var name_position := rect.position + (Vector2(2, 42) if is_selected else Vector2(2, 15))
-		canvas.draw_string(font, name_position, preview_item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+		canvas.draw_string(font, rect.position + Vector2(2, 15), preview_item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 
 func _draw_scale_handles(canvas: Control, rect: Rect2) -> void:
@@ -1341,7 +1359,10 @@ func _update_move_sprite_menu() -> void:
 	if move_sprite_button.get_parent() != target_canvas:
 		move_sprite_button.reparent(target_canvas)
 	var selected_rect := _atlas_rect_to_canvas(_get_preview_rect_for_image(image_index))
-	move_sprite_button.position = selected_rect.position + Vector2(3, 3)
+	move_sprite_button.position = Vector2(
+		maxf(selected_rect.position.x + 3.0, selected_rect.end.x - move_sprite_button.size.x - 3.0),
+		maxf(selected_rect.position.y + 3.0, selected_rect.end.y - move_sprite_button.size.y - 3.0)
+	)
 	for page_index: int in atlas_pages.size():
 		if page_index == selected_page:
 			continue
@@ -1361,7 +1382,10 @@ func _on_move_target_page_selected(target_page_index: int) -> void:
 		push_warning(_t("warning_page_move_no_space"))
 		return
 
-	var resolved_target_page: int = result.get("target_page", target_page_index)
+	var resolved_target_page := atlas_page_layout.get_item_page(image_index)
+	if resolved_target_page < 0:
+		push_error("Atlas move succeeded without a resolved target page.")
+		return
 	preview_page_index = resolved_target_page
 	selected_sprite["page_index"] = resolved_target_page
 	_sync_pages_from_layout()
