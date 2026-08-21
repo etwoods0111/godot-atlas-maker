@@ -6,6 +6,8 @@ const AtlasExporter = preload("res://addons/godot_atlas_maker/atlas_exporter.gd"
 const PreviewTransform = preload("res://addons/godot_atlas_maker/preview_transform.gd")
 const AtlasLocalization = preload("res://addons/godot_atlas_maker/atlas_localization.gd")
 const PreviewSnap = preload("res://addons/godot_atlas_maker/preview_snap.gd")
+const AtlasPageLayoutModel = preload("res://addons/godot_atlas_maker/atlas_page_layout.gd")
+const AtlasScaleGeometry = preload("res://addons/godot_atlas_maker/atlas_scale_geometry.gd")
 
 const ATLAS_NAME_DIALOG_SIZE_RATIO := Vector2(0.32, 0.24)
 const ATLAS_NAME_DIALOG_MIN_SIZE := Vector2i(360, 190)
@@ -62,10 +64,13 @@ var snap_edges_enabled: bool = false
 var hovered_sprite: Dictionary = {}
 var preview_canvases: Dictionary = {}
 var preview_multi_page_mode: bool = false
+var atlas_page_layout = AtlasPageLayoutModel.new()
 
 # 拖拽相关
 var dragging_sprite: Dictionary = {}
 var drag_offset: Vector2 = Vector2.ZERO
+var drag_handle: AtlasScaleGeometry.Handle = AtlasScaleGeometry.Handle.NONE
+var drag_rejected: bool = false
 
 
 func _ready():
@@ -767,8 +772,11 @@ func _create_size_decision_dialog() -> ConfirmationDialog:
 func _clear_layout_state() -> void:
 	unplaced_image_indices.clear()
 	atlas_pages.clear()
+	atlas_page_layout = AtlasPageLayoutModel.new()
 	preview_page_index = 0
 	dragging_sprite = {}
+	drag_handle = AtlasScaleGeometry.Handle.NONE
+	drag_rejected = false
 	hovered_sprite = {}
 	_update_preview_page_controls()
 
@@ -850,10 +858,18 @@ func _draw_preview_page(canvas: Control, page_index: int) -> void:
 		if is_hovered:
 			canvas.draw_rect(rect, Color(1.0, 0.78, 0.18, 0.18), true)
 		canvas.draw_rect(rect, border_color, false, border_width)
+		if is_hovered:
+			_draw_scale_handles(canvas, rect)
 
 		var font = canvas.get_theme_default_font()
 		var font_size = maxi(10, int(round(12.0 * preview_zoom)))
 		canvas.draw_string(font, rect.position + Vector2(2, 15), preview_item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+
+
+func _draw_scale_handles(canvas: Control, rect: Rect2) -> void:
+	var radius := maxf(3.0, 5.0 * preview_zoom)
+	for corner: Vector2 in [rect.position, Vector2(rect.end.x, rect.position.y), Vector2(rect.position.x, rect.end.y), rect.end]:
+		canvas.draw_circle(corner, radius, Color(1.0, 0.78, 0.18, 1.0))
 
 
 func _draw_grid(canvas: Control):
@@ -897,14 +913,20 @@ func _handle_preview_canvas_input(event: InputEvent, page_index: int) -> void:
 				for preview_item: Dictionary in _get_preview_items_for_page(preview_page_index):
 					var rect: Rect2 = preview_item["rect"]
 					if rect.has_point(mouse_pos):
+						drag_handle = AtlasScaleGeometry.hit_handle(rect, mouse_pos, 7.0 / preview_zoom)
 						dragging_sprite = {
 							"image_index": preview_item["index"],
 							"page_index": preview_page_index,
 						}
 						drag_offset = mouse_pos - rect.position
+						drag_rejected = false
 						break
 			else:
+				if drag_rejected:
+					push_warning(_t("warning_page_move_no_space"))
 				dragging_sprite = {}
+				drag_handle = AtlasScaleGeometry.Handle.NONE
+				drag_rejected = false
 
 	elif event is InputEventMouseMotion:
 		_update_hovered_sprite(event.position, page_index)
@@ -913,13 +935,72 @@ func _handle_preview_canvas_input(event: InputEvent, page_index: int) -> void:
 			if image_index < 0 or image_index >= loaded_images.size():
 				return
 
-			var current_rect := _get_preview_rect_for_image(image_index)
-			var new_pos: Vector2 = _canvas_to_atlas(event.position) - drag_offset
-			var clamped_pos: Vector2 = new_pos.clamp(Vector2.ZERO, Vector2(atlas_size) - current_rect.size)
-			if snap_edges_enabled:
-				clamped_pos = _snap_preview_position(image_index, clamped_pos, current_rect.size)
-			_set_preview_rect_for_image(image_index, Rect2(clamped_pos, current_rect.size))
+			if atlas_pages.is_empty():
+				_update_single_page_drag(image_index, event.position)
+			else:
+				_update_paged_drag(image_index, page_index, event.position)
 			_update_preview()
+
+
+func _update_single_page_drag(image_index: int, canvas_position: Vector2) -> void:
+	var current_rect := _get_preview_rect_for_image(image_index)
+	var new_pos: Vector2 = _canvas_to_atlas(canvas_position) - drag_offset
+	var clamped_pos: Vector2 = new_pos.clamp(Vector2.ZERO, Vector2(atlas_size) - current_rect.size)
+	if snap_edges_enabled:
+		clamped_pos = _snap_preview_position(image_index, clamped_pos, current_rect.size)
+	_set_preview_rect_for_image(image_index, Rect2(clamped_pos, current_rect.size))
+
+
+func _update_paged_drag(image_index: int, target_page_index: int, canvas_position: Vector2) -> void:
+	_configure_page_layout()
+	var pointer := _canvas_to_atlas(canvas_position)
+	var result: Dictionary
+	if drag_handle != AtlasScaleGeometry.Handle.NONE:
+		var source_size := _source_size_for_image(image_index)
+		var current_rect := atlas_page_layout.get_item_rect(image_index)
+		var resized_rect := AtlasScaleGeometry.resize_from_handle(
+			current_rect,
+			source_size,
+			drag_handle,
+			pointer,
+			atlas_size
+		)
+		result = atlas_page_layout.resize_item(image_index, resized_rect)
+	else:
+		var current_rect := atlas_page_layout.get_item_rect(image_index)
+		var position := pointer - drag_offset
+		var target_rect := Rect2i(
+			Vector2i(roundi(position.x), roundi(position.y)).clamp(Vector2i.ZERO, atlas_size - current_rect.size),
+			current_rect.size
+		)
+		result = atlas_page_layout.move_item(image_index, target_page_index, target_rect)
+
+	if result.get("ok", false):
+		drag_rejected = false
+		_sync_pages_from_layout()
+	else:
+		drag_rejected = true
+
+
+
+func _source_size_for_image(image_index: int) -> Vector2i:
+	if image_index < 0 or image_index >= loaded_images.size():
+		return Vector2i.ONE
+	var texture: Texture2D = loaded_images[image_index].texture
+	return Vector2i(texture.get_width(), texture.get_height())
+
+
+func _configure_page_layout() -> void:
+	var source_sizes: Array[Vector2i] = []
+	for image_index: int in loaded_images.size():
+		source_sizes.append(_source_size_for_image(image_index))
+	atlas_page_layout.configure(atlas_size, padding, source_sizes, atlas_pages)
+
+
+func _sync_pages_from_layout() -> void:
+	atlas_pages = atlas_page_layout.to_pages()
+	_apply_page_rects_to_loaded_images(preview_page_index)
+	_update_preview_page_controls()
 
 
 func _on_preview_canvas_mouse_exited() -> void:
@@ -960,6 +1041,16 @@ func _snap_preview_position(image_index: int, position: Vector2, rect_size: Vect
 
 
 func _auto_arrange_images():
+	if not atlas_pages.is_empty():
+		_configure_page_layout()
+		var arranged_pages_result: Dictionary = atlas_page_layout.arrange_pages()
+		if not arranged_pages_result.get("ok", false):
+			push_warning(_t("warning_page_arrange_failed", [arranged_pages_result.get("page_index", 0) + 1]))
+			return
+		_sync_pages_from_layout()
+		print("✓ 已按当前页分别自动排列 %d 个图集页" % atlas_pages.size())
+		return
+
 	var image_sizes := _get_image_sizes()
 
 	var pack_result: Dictionary = AtlasPacker.pack(image_sizes, atlas_size, padding)
@@ -1099,6 +1190,7 @@ func _apply_multiple_page_layout() -> bool:
 	for page: Dictionary in pages:
 		atlas_pages.append(page.duplicate(true))
 
+	_configure_page_layout()
 	preview_page_index = 0
 	_apply_page_rects_to_loaded_images(preview_page_index)
 	_update_preview_page_controls()
