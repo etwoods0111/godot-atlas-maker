@@ -38,6 +38,7 @@ var preview_canvas_row
 var preview_page_bar
 var preview_page_option
 var preview_page_summary_label
+var move_sprite_button
 var language_toggle_button
 var snap_edges_check_box
 
@@ -65,6 +66,7 @@ var hovered_sprite: Dictionary = {}
 var preview_canvases: Dictionary = {}
 var preview_multi_page_mode: bool = false
 var atlas_page_layout = AtlasPageLayoutModel.new()
+var selected_sprite: Dictionary = {}
 
 # 拖拽相关
 var dragging_sprite: Dictionary = {}
@@ -137,8 +139,8 @@ func _ready():
 	# 设置预览画布
 	if preview_canvas:
 		_update_preview_canvas_size()
-		preview_canvas.draw.connect(_on_preview_canvas_draw)
-		preview_canvas.gui_input.connect(_on_preview_canvas_input)
+		preview_canvas.draw.connect(_on_preview_canvas_page_draw.bind(0))
+		preview_canvas.gui_input.connect(_on_preview_canvas_page_input.bind(0))
 		preview_canvas.mouse_exited.connect(_on_preview_canvas_mouse_exited)
 
 	print("✓ 精灵图集制作工具已初始化")
@@ -741,6 +743,11 @@ func _create_preview_page_bar() -> void:
 	preview_page_option.item_selected.connect(_on_preview_page_selected)
 	preview_page_bar.add_child(preview_page_option)
 
+	move_sprite_button = MenuButton.new()
+	move_sprite_button.name = "MoveSpriteButton"
+	move_sprite_button.get_popup().id_pressed.connect(_on_move_target_page_selected)
+	preview_page_bar.add_child(move_sprite_button)
+
 	preview_page_summary_label = Label.new()
 	preview_page_summary_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preview_page_bar.add_child(preview_page_summary_label)
@@ -778,6 +785,7 @@ func _clear_layout_state() -> void:
 	drag_handle = AtlasScaleGeometry.Handle.NONE
 	drag_rejected = false
 	hovered_sprite = {}
+	selected_sprite = {}
 	_update_preview_page_controls()
 
 
@@ -853,8 +861,15 @@ func _draw_preview_page(canvas: Control, page_index: int) -> void:
 			and int(hovered_sprite.get("image_index", -1)) == int(preview_item["index"])
 			and int(hovered_sprite.get("page_index", -1)) == page_index
 		)
-		var border_color := Color(1.0, 0.78, 0.18, 1.0) if is_hovered else Color(0, 1, 1, 0.5)
-		var border_width := 3.0 if is_hovered else 1.0
+		var is_selected := (
+			not selected_sprite.is_empty()
+			and int(selected_sprite.get("image_index", -1)) == int(preview_item["index"])
+			and int(selected_sprite.get("page_index", -1)) == page_index
+		)
+		var border_color := Color(0.3, 1.0, 0.45, 1.0) if is_selected else (Color(1.0, 0.78, 0.18, 1.0) if is_hovered else Color(0, 1, 1, 0.5))
+		var border_width := 3.0 if is_hovered or is_selected else 1.0
+		if is_selected:
+			canvas.draw_rect(rect, Color(0.3, 1.0, 0.45, 0.14), true)
 		if is_hovered:
 			canvas.draw_rect(rect, Color(1.0, 0.78, 0.18, 0.18), true)
 		canvas.draw_rect(rect, border_color, false, border_width)
@@ -913,6 +928,10 @@ func _handle_preview_canvas_input(event: InputEvent, page_index: int) -> void:
 				for preview_item: Dictionary in _get_preview_items_for_page(preview_page_index):
 					var rect: Rect2 = preview_item["rect"]
 					if rect.has_point(mouse_pos):
+						selected_sprite = {
+							"image_index": preview_item["index"],
+							"page_index": preview_page_index,
+						}
 						drag_handle = AtlasScaleGeometry.hit_handle(rect, mouse_pos, 7.0 / preview_zoom)
 						dragging_sprite = {
 							"image_index": preview_item["index"],
@@ -920,6 +939,8 @@ func _handle_preview_canvas_input(event: InputEvent, page_index: int) -> void:
 						}
 						drag_offset = mouse_pos - rect.position
 						drag_rejected = false
+						_update_preview_page_controls()
+						_update_preview()
 						break
 			else:
 				if drag_rejected:
@@ -938,7 +959,9 @@ func _handle_preview_canvas_input(event: InputEvent, page_index: int) -> void:
 			if atlas_pages.is_empty():
 				_update_single_page_drag(image_index, event.position)
 			else:
-				_update_paged_drag(image_index, page_index, event.position)
+				var source_page_index: int = dragging_sprite.get("page_index", -1)
+				if page_index == source_page_index:
+					_update_paged_drag(image_index, source_page_index, event.position)
 			_update_preview()
 
 
@@ -1274,6 +1297,47 @@ func _update_preview_page_controls() -> void:
 	else:
 		preview_page_index = 0
 		preview_page_summary_label.text = ""
+
+	_update_move_sprite_menu()
+
+
+func _update_move_sprite_menu() -> void:
+	if move_sprite_button == null:
+		return
+
+	move_sprite_button.text = _t("button_move")
+	move_sprite_button.visible = atlas_pages.size() > 1
+	move_sprite_button.disabled = selected_sprite.is_empty() or atlas_pages.size() <= 1
+	var popup: PopupMenu = move_sprite_button.get_popup()
+	popup.clear()
+	if selected_sprite.is_empty():
+		return
+
+	var selected_page: int = selected_sprite.get("page_index", -1)
+	for page_index: int in atlas_pages.size():
+		if page_index == selected_page:
+			continue
+		popup.add_item(_t("move_to_page", [page_index + 1]), page_index)
+
+
+func _on_move_target_page_selected(target_page_index: int) -> void:
+	if selected_sprite.is_empty():
+		return
+	var image_index: int = selected_sprite.get("image_index", -1)
+	if image_index < 0 or image_index >= loaded_images.size():
+		return
+
+	_configure_page_layout()
+	var result := atlas_page_layout.move_item_to_first_fit(image_index, target_page_index)
+	if not result.get("ok", false):
+		push_warning(_t("warning_page_move_no_space"))
+		return
+
+	preview_page_index = target_page_index
+	selected_sprite["page_index"] = target_page_index
+	_sync_pages_from_layout()
+	_apply_page_rects_to_loaded_images(preview_page_index)
+	_update_preview()
 
 
 func _on_preview_page_selected(index: int) -> void:

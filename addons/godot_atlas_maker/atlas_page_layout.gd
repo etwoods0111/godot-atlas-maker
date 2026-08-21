@@ -67,6 +67,41 @@ func move_item(item_index: int, target_page: int, target_rect: Rect2i) -> Dictio
 	return {"ok": true}
 
 
+func move_item_to_first_fit(item_index: int, target_page: int) -> Dictionary:
+	var target_rect := find_first_fit(item_index, target_page)
+	if target_rect.size.x <= 0 or target_rect.size.y <= 0:
+		return {"ok": false, "reason": "no_space"}
+	return move_item(item_index, target_page, target_rect)
+
+
+func find_first_fit(item_index: int, target_page: int) -> Rect2i:
+	var source_page := get_item_page(item_index)
+	if source_page < 0 or target_page < 0 or target_page >= _pages.size():
+		return Rect2i()
+
+	var item_rect := get_item_rect(item_index)
+	var candidates: Array[Vector2i] = []
+	var seen_positions: Dictionary = {}
+	_append_candidate(candidates, seen_positions, item_rect.position)
+	_append_candidate(candidates, seen_positions, Vector2i.ZERO)
+
+	var page: Dictionary = _pages[target_page]
+	var rects_by_index: Dictionary = page.get("rects_by_index", {})
+	for other_item_index: int in page.get("item_indices", []):
+		if other_item_index == item_index:
+			continue
+		var other_rect := Rect2i(rects_by_index.get(other_item_index, Rect2i()))
+		_append_candidate(candidates, seen_positions, Vector2i(other_rect.end.x, other_rect.position.y))
+		_append_candidate(candidates, seen_positions, Vector2i(other_rect.position.x, other_rect.end.y))
+		_append_candidate(candidates, seen_positions, other_rect.end)
+
+	for position: Vector2i in candidates:
+		var target_rect := Rect2i(position, item_rect.size)
+		if _is_legal_rect(target_page, item_index, target_rect):
+			return target_rect
+	return Rect2i()
+
+
 func resize_item(item_index: int, target_rect: Rect2i) -> Dictionary:
 	var page_index := get_item_page(item_index)
 	if page_index < 0 or not _is_legal_rect(page_index, item_index, target_rect):
@@ -148,6 +183,13 @@ static func _copy_pages(source_pages: Array) -> Array[Dictionary]:
 			"rects_by_index": copied_rects,
 		})
 	return copied_pages
+
+
+static func _append_candidate(candidates: Array[Vector2i], seen_positions: Dictionary, position: Vector2i) -> void:
+	if seen_positions.has(position):
+		return
+	seen_positions[position] = true
+	candidates.append(position)
 
 
 static func _remove_from_page(page: Dictionary, item_index: int) -> void:

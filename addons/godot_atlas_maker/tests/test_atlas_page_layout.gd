@@ -6,6 +6,7 @@ const AtlasPageLayout = preload("res://addons/godot_atlas_maker/atlas_page_layou
 func _init() -> void:
 	var failures: Array[String] = []
 	_test_moves_item_between_pages_without_mutating_on_rejection(failures)
+	_test_moves_item_to_first_available_target_position(failures)
 	_test_arrange_preserves_page_membership(failures)
 	_test_resize_rejects_overlap_without_mutating(failures)
 
@@ -37,6 +38,28 @@ func _test_moves_item_between_pages_without_mutating_on_rejection(failures: Arra
 		failures
 	)
 	_expect_equal(layout.to_pages(), before, "rejected move must not mutate page data", failures)
+
+
+func _test_moves_item_to_first_available_target_position(failures: Array[String]) -> void:
+	var layout = _create_two_page_layout()
+	var result: Dictionary = layout.move_item_to_first_fit(0, 1)
+	_expect_true(result.get("ok", false), "button move should find a free position in the target page", failures)
+	_expect_equal(layout.get_item_page(0), 1, "button move should change page membership", failures)
+	_expect_equal(layout.get_item_rect(0), Rect2i(20, 0, 20, 20), "button move should use the first free target position", failures)
+
+	var full_layout = AtlasPageLayout.new()
+	full_layout.configure(
+		Vector2i(20, 20),
+		0,
+		[Vector2i(20, 20), Vector2i(20, 20)],
+		[
+			{"item_indices": [0], "rects_by_index": {0: Rect2i(0, 0, 20, 20)}},
+			{"item_indices": [1], "rects_by_index": {1: Rect2i(0, 0, 20, 20)}},
+		]
+	)
+	var before := full_layout.to_pages()
+	_expect_true(not full_layout.move_item_to_first_fit(0, 1).get("ok", true), "button move should reject a full target page", failures)
+	_expect_equal(full_layout.to_pages(), before, "rejected button move must not mutate page data", failures)
 
 
 func _test_arrange_preserves_page_membership(failures: Array[String]) -> void:
