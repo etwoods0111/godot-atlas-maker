@@ -63,8 +63,19 @@ func move_item(item_index: int, target_page: int, target_rect: Rect2i) -> Dictio
 	var next_pages := _copy_pages(_pages)
 	_remove_from_page(next_pages[source_page], item_index)
 	_insert_into_page(next_pages[target_page], item_index, target_rect)
+	var source_page_removed := false
+	var resolved_target_page := target_page
+	if source_page != target_page and next_pages[source_page].get("item_indices", []).is_empty():
+		next_pages.remove_at(source_page)
+		source_page_removed = true
+		if source_page < target_page:
+			resolved_target_page -= 1
 	_pages = next_pages
-	return {"ok": true}
+	return {
+		"ok": true,
+		"target_page": resolved_target_page,
+		"source_page_removed": source_page_removed,
+	}
 
 
 func move_item_to_first_fit(item_index: int, target_page: int) -> Dictionary:

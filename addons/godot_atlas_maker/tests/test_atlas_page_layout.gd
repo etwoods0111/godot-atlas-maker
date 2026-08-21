@@ -7,6 +7,7 @@ func _init() -> void:
 	var failures: Array[String] = []
 	_test_moves_item_between_pages_without_mutating_on_rejection(failures)
 	_test_moves_item_to_first_available_target_position(failures)
+	_test_removes_source_page_when_a_move_leaves_it_empty(failures)
 	_test_arrange_preserves_page_membership(failures)
 	_test_resize_rejects_overlap_without_mutating(failures)
 
@@ -60,6 +61,26 @@ func _test_moves_item_to_first_available_target_position(failures: Array[String]
 	var before := full_layout.to_pages()
 	_expect_true(not full_layout.move_item_to_first_fit(0, 1).get("ok", true), "button move should reject a full target page", failures)
 	_expect_equal(full_layout.to_pages(), before, "rejected button move must not mutate page data", failures)
+
+
+func _test_removes_source_page_when_a_move_leaves_it_empty(failures: Array[String]) -> void:
+	var layout = AtlasPageLayout.new()
+	layout.configure(
+		Vector2i(64, 64),
+		0,
+		[Vector2i(20, 20), Vector2i(20, 20)],
+		[
+			{"item_indices": [0], "rects_by_index": {0: Rect2i(0, 0, 20, 20)}},
+			{"item_indices": [1], "rects_by_index": {1: Rect2i(0, 0, 20, 20)}},
+		]
+	)
+
+	var result: Dictionary = layout.move_item_to_first_fit(0, 1)
+	_expect_true(result.get("ok", false), "move should succeed before removing an empty source page", failures)
+	_expect_true(result.get("source_page_removed", false), "move should report that its empty source page was removed", failures)
+	_expect_equal(result.get("target_page", -1), 0, "target page index should be adjusted after source page removal", failures)
+	_expect_equal(layout.page_count(), 1, "an empty source page should be removed", failures)
+	_expect_equal(layout.get_page_item_indices(0), [1, 0], "remaining page should retain both items", failures)
 
 
 func _test_arrange_preserves_page_membership(failures: Array[String]) -> void:

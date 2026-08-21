@@ -6,6 +6,7 @@ const AtlasExporter = preload("res://addons/godot_atlas_maker/atlas_exporter.gd"
 const PreviewTransform = preload("res://addons/godot_atlas_maker/preview_transform.gd")
 const AtlasLocalization = preload("res://addons/godot_atlas_maker/atlas_localization.gd")
 const PreviewSnap = preload("res://addons/godot_atlas_maker/preview_snap.gd")
+const PreviewPageBinding = preload("res://addons/godot_atlas_maker/preview_page_binding.gd")
 const AtlasPageLayoutModel = preload("res://addons/godot_atlas_maker/atlas_page_layout.gd")
 const AtlasScaleGeometry = preload("res://addons/godot_atlas_maker/atlas_scale_geometry.gd")
 
@@ -101,6 +102,7 @@ func _ready():
 	_create_export_settings_bar()
 	atlas_name_dialog = _create_atlas_name_dialog()
 	_create_preview_page_bar()
+	_create_move_sprite_button()
 	size_decision_dialog = _create_size_decision_dialog()
 
 	# 等待父节点准备好
@@ -743,11 +745,6 @@ func _create_preview_page_bar() -> void:
 	preview_page_option.item_selected.connect(_on_preview_page_selected)
 	preview_page_bar.add_child(preview_page_option)
 
-	move_sprite_button = MenuButton.new()
-	move_sprite_button.name = "MoveSpriteButton"
-	move_sprite_button.get_popup().id_pressed.connect(_on_move_target_page_selected)
-	preview_page_bar.add_child(move_sprite_button)
-
 	preview_page_summary_label = Label.new()
 	preview_page_summary_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preview_page_bar.add_child(preview_page_summary_label)
@@ -758,6 +755,20 @@ func _create_preview_page_bar() -> void:
 
 func _on_snap_edges_toggled(enabled: bool) -> void:
 	snap_edges_enabled = enabled
+
+
+func _create_move_sprite_button() -> void:
+	if preview_canvas == null or move_sprite_button != null:
+		return
+
+	move_sprite_button = MenuButton.new()
+	move_sprite_button.name = "MoveSpriteButton"
+	move_sprite_button.custom_minimum_size = Vector2(64, 24)
+	move_sprite_button.size = Vector2(64, 24)
+	move_sprite_button.z_index = 10
+	move_sprite_button.visible = false
+	move_sprite_button.get_popup().id_pressed.connect(_on_move_target_page_selected)
+	preview_canvas.add_child(move_sprite_button)
 
 
 func _create_size_decision_dialog() -> ConfirmationDialog:
@@ -799,6 +810,7 @@ func _update_preview_canvas_size() -> void:
 		return
 
 	_sync_preview_canvases()
+	_update_move_sprite_menu()
 
 
 func _reset_preview_zoom() -> void:
@@ -841,7 +853,8 @@ func _on_preview_canvas_draw():
 
 func _on_preview_canvas_page_draw(page_index: int) -> void:
 	var canvas := preview_canvases.get(page_index) as Control
-	_draw_preview_page(canvas, page_index)
+	var resolved_page_index := PreviewPageBinding.resolve_page_index(page_index, preview_page_index, preview_multi_page_mode)
+	_draw_preview_page(canvas, resolved_page_index)
 
 
 func _draw_preview_page(canvas: Control, page_index: int) -> void:
@@ -878,7 +891,8 @@ func _draw_preview_page(canvas: Control, page_index: int) -> void:
 
 		var font = canvas.get_theme_default_font()
 		var font_size = maxi(10, int(round(12.0 * preview_zoom)))
-		canvas.draw_string(font, rect.position + Vector2(2, 15), preview_item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+		var name_position := rect.position + (Vector2(2, 42) if is_selected else Vector2(2, 15))
+		canvas.draw_string(font, name_position, preview_item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 
 func _draw_scale_handles(canvas: Control, rect: Rect2) -> void:
@@ -909,7 +923,8 @@ func _on_preview_canvas_input(event: InputEvent):
 
 
 func _on_preview_canvas_page_input(event: InputEvent, page_index: int) -> void:
-	_handle_preview_canvas_input(event, page_index)
+	var resolved_page_index := PreviewPageBinding.resolve_page_index(page_index, preview_page_index, preview_multi_page_mode)
+	_handle_preview_canvas_input(event, resolved_page_index)
 
 
 func _handle_preview_canvas_input(event: InputEvent, page_index: int) -> void:
@@ -1306,14 +1321,27 @@ func _update_move_sprite_menu() -> void:
 		return
 
 	move_sprite_button.text = _t("button_move")
-	move_sprite_button.visible = atlas_pages.size() > 1
 	move_sprite_button.disabled = selected_sprite.is_empty() or atlas_pages.size() <= 1
 	var popup: PopupMenu = move_sprite_button.get_popup()
 	popup.clear()
 	if selected_sprite.is_empty():
+		move_sprite_button.visible = false
 		return
 
 	var selected_page: int = selected_sprite.get("page_index", -1)
+	var image_index: int = selected_sprite.get("image_index", -1)
+	move_sprite_button.visible = atlas_pages.size() > 1 and (preview_multi_page_mode or selected_page == preview_page_index)
+	if not move_sprite_button.visible:
+		return
+	var canvas_page_index := selected_page if preview_multi_page_mode else 0
+	var target_canvas := preview_canvases.get(canvas_page_index) as Control
+	if target_canvas == null or image_index < 0 or image_index >= loaded_images.size():
+		move_sprite_button.visible = false
+		return
+	if move_sprite_button.get_parent() != target_canvas:
+		move_sprite_button.reparent(target_canvas)
+	var selected_rect := _atlas_rect_to_canvas(_get_preview_rect_for_image(image_index))
+	move_sprite_button.position = selected_rect.position + Vector2(3, 3)
 	for page_index: int in atlas_pages.size():
 		if page_index == selected_page:
 			continue
@@ -1333,8 +1361,9 @@ func _on_move_target_page_selected(target_page_index: int) -> void:
 		push_warning(_t("warning_page_move_no_space"))
 		return
 
-	preview_page_index = target_page_index
-	selected_sprite["page_index"] = target_page_index
+	var resolved_target_page: int = result.get("target_page", target_page_index)
+	preview_page_index = resolved_target_page
+	selected_sprite["page_index"] = resolved_target_page
 	_sync_pages_from_layout()
 	_apply_page_rects_to_loaded_images(preview_page_index)
 	_update_preview()
