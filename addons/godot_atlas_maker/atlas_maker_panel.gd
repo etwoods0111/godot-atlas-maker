@@ -10,9 +10,9 @@ const PreviewPageBinding = preload("res://addons/godot_atlas_maker/preview_page_
 const AtlasPageLayoutModel = preload("res://addons/godot_atlas_maker/atlas_page_layout.gd")
 const AtlasScaleGeometry = preload("res://addons/godot_atlas_maker/atlas_scale_geometry.gd")
 
-const ATLAS_NAME_DIALOG_SIZE_RATIO := Vector2(0.32, 0.24)
-const ATLAS_NAME_DIALOG_MIN_SIZE := Vector2i(360, 190)
-const ATLAS_NAME_DIALOG_MAX_SIZE := Vector2i(560, 260)
+const ATLAS_NAME_DIALOG_SIZE_RATIO := Vector2(0.32, 0.20)
+const ATLAS_NAME_DIALOG_MIN_SIZE := Vector2i(360, 170)
+const ATLAS_NAME_DIALOG_MAX_SIZE := Vector2i(520, 220)
 const FILE_DIALOG_SIZE_RATIO := Vector2(0.72, 0.72)
 const FILE_DIALOG_MIN_SIZE := Vector2i(760, 520)
 const FILE_DIALOG_MAX_SIZE := Vector2i(1280, 820)
@@ -608,7 +608,7 @@ func _create_export_settings_bar() -> void:
 	export_res_check_box = CheckBox.new()
 	export_res_check_box.name = "ExportResCheckBox"
 	export_res_check_box.text = "Godot .res图集"
-	export_res_check_box.button_pressed = false
+	export_res_check_box.button_pressed = true
 	export_res_check_box.tooltip_text = "额外生成二进制 .res 图集纹理。会增加文件体积，通常只在确实需要纯 Godot 资源链路时启用。"
 	export_settings_hbox.add_child(export_res_check_box)
 
@@ -635,6 +635,7 @@ func _create_export_settings_bar() -> void:
 func _create_atlas_name_dialog() -> ConfirmationDialog:
 	var dialog := ConfirmationDialog.new()
 	dialog.name = "AtlasNameDialog"
+	dialog.max_size = ATLAS_NAME_DIALOG_MAX_SIZE
 	dialog.title = "输入图集名称"
 	dialog.ok_button_text = "下一步"
 	dialog.cancel_button_text = "取消"
@@ -656,7 +657,7 @@ func _create_atlas_name_dialog() -> ConfirmationDialog:
 
 	var label := Label.new()
 	label.name = "AtlasNameLabel"
-	label.text = "图集名称用于 PNG、.res 与 JSON 映射文件。"
+	label.text = "图集名称：PNG、.res 与 JSON 文件名。"
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(label)
 
@@ -668,7 +669,7 @@ func _create_atlas_name_dialog() -> ConfirmationDialog:
 
 	var folder_label := Label.new()
 	folder_label.name = "AtlasFolderLabel"
-	folder_label.text = "目标资源文件夹用于保存 PNG、.tres、.res 和 JSON。"
+	folder_label.text = "目标资源文件夹：保存所有导出文件。"
 	folder_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(folder_label)
 
