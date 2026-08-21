@@ -51,6 +51,7 @@ var export_dialog
 var atlas_name_dialog
 var atlas_name_line_edit
 var size_decision_dialog
+var atlas_folder_line_edit
 
 # 数据
 var loaded_images: Array[Dictionary] = []  # {name: String, texture: Texture2D, rect: Rect2}
@@ -61,6 +62,7 @@ var atlas_pages: Array[Dictionary] = []
 var preview_page_index: int = 0
 var pending_split_export_path: String = ""
 var pending_export_atlas_name: String = ""
+var pending_export_folder_name: String = "resources"
 var export_button_idle_text: String = ""
 var preview_zoom: float = 1.0
 var current_locale: String = AtlasLocalization.DEFAULT_LOCALE
@@ -253,8 +255,13 @@ func _apply_dialog_localization() -> void:
 		var atlas_name_label := atlas_name_dialog.find_child("AtlasNameLabel", true, false) as Label
 		if atlas_name_label:
 			atlas_name_label.text = _t("dialog_atlas_name_label")
+		var atlas_folder_label := atlas_name_dialog.find_child("AtlasFolderLabel", true, false) as Label
+		if atlas_folder_label:
+			atlas_folder_label.text = _t("dialog_atlas_folder_label")
 	if atlas_name_line_edit:
 		atlas_name_line_edit.placeholder_text = _t("dialog_atlas_name_placeholder")
+	if atlas_folder_line_edit:
+		atlas_folder_line_edit.placeholder_text = _t("dialog_atlas_folder_placeholder")
 
 	if size_decision_dialog:
 		size_decision_dialog.title = _t("dialog_size_title")
@@ -318,6 +325,7 @@ func _on_clear_pressed():
 	_clear_layout_state()
 	pending_split_export_path = ""
 	pending_export_atlas_name = ""
+	pending_export_folder_name = "resources"
 	_reset_preview_zoom()
 	_update_image_list()
 	_update_preview()
@@ -345,12 +353,14 @@ func _on_export_pressed():
 
 
 func _request_export_atlas_name() -> void:
-	if atlas_name_dialog == null or atlas_name_line_edit == null:
+	if atlas_name_dialog == null or atlas_name_line_edit == null or atlas_folder_line_edit == null:
 		pending_export_atlas_name = _default_atlas_name()
+		pending_export_folder_name = _default_export_folder_name()
 		_popup_export_dialog_for_atlas_name()
 		return
 
 	atlas_name_line_edit.text = _default_atlas_name()
+	atlas_folder_line_edit.text = _default_export_folder_name()
 	_popup_scaled_centered(atlas_name_dialog, ATLAS_NAME_DIALOG_SIZE_RATIO, ATLAS_NAME_DIALOG_MIN_SIZE, ATLAS_NAME_DIALOG_MAX_SIZE)
 	atlas_name_line_edit.grab_focus()
 	atlas_name_line_edit.select_all()
@@ -364,15 +374,28 @@ func _default_atlas_name() -> String:
 	return "sprite_atlas"
 
 
+func _default_export_folder_name() -> String:
+	if not pending_export_folder_name.is_empty():
+		return pending_export_folder_name
+	return "resources"
+
+
 func _on_export_name_confirmed() -> void:
 	var raw_name: String = atlas_name_line_edit.text if atlas_name_line_edit else ""
 	var atlas_name := _safe_export_name(raw_name)
+	var raw_folder_name: String = atlas_folder_line_edit.text if atlas_folder_line_edit else ""
+	var folder_name := _safe_export_name(raw_folder_name)
 	if atlas_name.is_empty():
 		push_warning(_t("warning_enter_atlas_name"))
 		_request_export_atlas_name()
 		return
+	if folder_name.is_empty():
+		push_warning(_t("warning_enter_atlas_folder"))
+		_request_export_atlas_name()
+		return
 
 	pending_export_atlas_name = atlas_name
+	pending_export_folder_name = folder_name
 	_popup_export_dialog_for_atlas_name()
 
 
@@ -384,6 +407,7 @@ func _on_export_name_submitted(_text: String) -> void:
 
 func _on_export_name_canceled() -> void:
 	pending_export_atlas_name = ""
+	pending_export_folder_name = "resources"
 
 
 func _popup_export_dialog_for_atlas_name() -> void:
@@ -431,7 +455,8 @@ func _on_export_file_selected(path: String) -> void:
 	print("开始导出图集")
 	print("  - 用户选择路径: ", path)
 	print("  - 实际输出基准: ", normalized_output_path)
-	print("  - 图集名称: ", export_options.get("output_folder_name", pending_export_atlas_name))
+	print("  - 图集名称: ", pending_export_atlas_name)
+	print("  - 目标资源文件夹: ", export_options.get("output_folder_name", pending_export_folder_name))
 	print("  - 导出 PNG: ", export_options.get("export_png", false))
 	print("  - 导出 .tres: ", export_options.get("export_tres", false))
 	print("  - 导出 .res: ", export_options.get("export_res", false))
@@ -596,7 +621,7 @@ func _create_export_settings_bar() -> void:
 
 	var naming_hint := Label.new()
 	naming_hint.name = "ExportNamingHint"
-	naming_hint.text = "导出时输入图集名称；PNG、.tres、.res 和 JSON 都会保存到同名文件夹内。"
+	naming_hint.text = "导出时分别设置图集名称与目标资源文件夹；生成文件统一保存到该文件夹内。"
 	naming_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	naming_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	naming_hint.add_theme_font_size_override("font_size", 11)
@@ -631,7 +656,7 @@ func _create_atlas_name_dialog() -> ConfirmationDialog:
 
 	var label := Label.new()
 	label.name = "AtlasNameLabel"
-	label.text = "该名称会用于导出文件夹、PNG 文件、.res 文件和 JSON 映射文件。"
+	label.text = "图集名称用于 PNG、.res 与 JSON 映射文件。"
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(label)
 
@@ -640,6 +665,18 @@ func _create_atlas_name_dialog() -> ConfirmationDialog:
 	atlas_name_line_edit.custom_minimum_size = Vector2(320, 32)
 	atlas_name_line_edit.text_submitted.connect(_on_export_name_submitted)
 	vbox.add_child(atlas_name_line_edit)
+
+	var folder_label := Label.new()
+	folder_label.name = "AtlasFolderLabel"
+	folder_label.text = "目标资源文件夹用于保存 PNG、.tres、.res 和 JSON。"
+	folder_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(folder_label)
+
+	atlas_folder_line_edit = LineEdit.new()
+	atlas_folder_line_edit.placeholder_text = "例如 resources"
+	atlas_folder_line_edit.custom_minimum_size = Vector2(320, 32)
+	atlas_folder_line_edit.text_submitted.connect(_on_export_name_submitted)
+	vbox.add_child(atlas_folder_line_edit)
 
 	add_child(dialog)
 	return dialog
@@ -777,7 +814,8 @@ func _create_move_sprite_button() -> void:
 	move_sprite_button.add_theme_stylebox_override("hover", _make_move_button_style(Color(0.08, 0.24, 0.32, 0.9), Color(0.9, 0.98, 1.0, 1.0)))
 	move_sprite_button.add_theme_stylebox_override("pressed", _make_move_button_style(Color(0.03, 0.08, 0.12, 0.86), Color(0.56, 0.86, 1.0, 1.0)))
 	move_sprite_button.get_popup().id_pressed.connect(_on_move_target_page_selected)
-	preview_canvas.add_child(move_sprite_button)
+	preview_page_bar.add_child(move_sprite_button)
+	preview_page_bar.move_child(move_sprite_button, 0)
 
 
 func _make_move_button_style(background_color: Color, outline_color: Color) -> StyleBoxFlat:
@@ -1411,22 +1449,9 @@ func _update_move_sprite_menu() -> void:
 		return
 
 	var selected_page: int = selected_sprite.get("page_index", -1)
-	var image_index: int = selected_sprite.get("image_index", -1)
-	move_sprite_button.visible = atlas_pages.size() > 1 and (preview_multi_page_mode or selected_page == preview_page_index)
+	move_sprite_button.visible = atlas_pages.size() > 1 and selected_page == preview_page_index
 	if not move_sprite_button.visible:
 		return
-	var canvas_page_index := selected_page if preview_multi_page_mode else 0
-	var target_canvas := preview_canvases.get(canvas_page_index) as Control
-	if target_canvas == null or image_index < 0 or image_index >= loaded_images.size():
-		move_sprite_button.visible = false
-		return
-	if move_sprite_button.get_parent() != target_canvas:
-		move_sprite_button.reparent(target_canvas)
-	var selected_rect := _atlas_rect_to_canvas(_get_preview_rect_for_image(image_index))
-	move_sprite_button.position = Vector2(
-		maxf(selected_rect.position.x + 3.0, selected_rect.end.x - move_sprite_button.size.x - 3.0),
-		maxf(selected_rect.position.y + 3.0, selected_rect.end.y - move_sprite_button.size.y - 3.0)
-	)
 	for page_index: int in atlas_pages.size():
 		if page_index == selected_page:
 			continue
@@ -1577,7 +1602,7 @@ func _build_export_options() -> Dictionary:
 		"export_tres": export_tres_check_box == null or export_tres_check_box.button_pressed,
 		"export_res": export_res_check_box != null and export_res_check_box.button_pressed,
 		"export_mapping": export_mapping_check_box != null and export_mapping_check_box.button_pressed,
-		"output_folder_name": atlas_name,
+		"output_folder_name": _default_export_folder_name(),
 		"atlas_texture_resource_name": atlas_name,
 		"mapping_file_name": atlas_name + "_map",
 	}
