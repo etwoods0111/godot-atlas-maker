@@ -15,6 +15,8 @@ func _init() -> void:
 	_test_rejects_empty_export_format_selection(failures)
 	_test_exports_multiple_atlas_pages_when_needed(failures)
 	_test_exports_explicit_preview_pages(failures)
+	_test_resamples_images_to_scaled_regions(failures)
+	_test_validates_every_page_before_writing_files(failures)
 
 	_cleanup_test_dir()
 
@@ -309,6 +311,69 @@ func _test_exports_explicit_preview_pages(failures: Array[String]) -> void:
 		_expect_equal(green_atlas.region, Rect2(3, 4, 12, 10), "first explicit page should use the supplied region", failures)
 	if yellow_atlas:
 		_expect_equal(yellow_atlas.region, Rect2(20, 5, 6, 8), "second explicit page should use the supplied region", failures)
+
+
+func _test_resamples_images_to_scaled_regions(failures: Array[String]) -> void:
+	var image := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+	var source_color := Color8(51, 204, 76, 255)
+	image.fill(source_color)
+	var result: Dictionary = AtlasExporter.export_atlas(
+		[
+			{
+				"name": "scaled",
+				"image": image,
+				"rect": Rect2i(3, 4, 6, 3),
+			},
+		],
+		Vector2i(16, 16),
+		TEST_DIR + "/scaled.png",
+		{
+			"export_png": true,
+			"export_tres": false,
+			"export_res": false,
+			"export_mapping": false,
+			"output_folder_name": "scaled",
+		}
+	)
+
+	_expect_equal(result.get("error", FAILED), OK, "scaled export should succeed", failures)
+	var atlas_image := Image.load_from_file(TEST_DIR + "/scaled/scaled.png")
+	_expect_equal(atlas_image.get_pixel(8, 6), source_color, "scaled image should fill its target region", failures)
+	_expect_equal(atlas_image.get_pixel(9, 6), Color(0, 0, 0, 0), "pixels outside the target region should remain transparent", failures)
+
+
+func _test_validates_every_page_before_writing_files(failures: Array[String]) -> void:
+	var image := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+	image.fill(Color.WHITE)
+	var pages: Array[Dictionary] = [
+		{
+			"item_indices": [0],
+			"rects_by_index": {0: Rect2i(0, 0, 4, 4)},
+		},
+		{
+			"item_indices": [1],
+			"rects_by_index": {1: Rect2i(14, 14, 4, 4)},
+		},
+	]
+	var result: Dictionary = AtlasExporter.export_atlas_pages(
+		[
+			{"name": "first", "image": image},
+			{"name": "second", "image": image},
+		],
+		pages,
+		Vector2i(16, 16),
+		TEST_DIR + "/invalid_pages.png",
+		{
+			"export_png": true,
+			"export_tres": false,
+			"export_res": false,
+			"export_mapping": false,
+			"output_folder_name": "invalid_pages",
+		}
+	)
+
+	_expect_true(result.get("error", OK) != OK, "invalid later page should be rejected", failures)
+	_expect_true(not FileAccess.file_exists(TEST_DIR + "/invalid_pages/invalid_pages_01.png"), "no page PNG should be written before all pages validate", failures)
 
 
 func _read_json(path: String) -> Dictionary:

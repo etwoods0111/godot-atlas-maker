@@ -110,9 +110,12 @@ static func _build_atlas_image_and_regions(items: Array[Dictionary], atlas_size:
 		if rect.position.x < 0 or rect.position.y < 0 or rect.end.x > atlas_size.x or rect.end.y > atlas_size.y:
 			return _error_result(ERR_INVALID_DATA, "Item '%s' is outside the atlas: %s." % [item_name, rect])
 
-		if source_image.get_format() != Image.FORMAT_RGBA8:
+		if source_image.get_format() != Image.FORMAT_RGBA8 or source_image.get_size() != rect.size:
 			source_image = source_image.duplicate()
+		if source_image.get_format() != Image.FORMAT_RGBA8:
 			source_image.convert(Image.FORMAT_RGBA8)
+		if source_image.get_size() != rect.size:
+			source_image.resize(rect.size.x, rect.size.y, Image.INTERPOLATE_LANCZOS)
 
 		atlas_image.blit_rect(
 			source_image,
@@ -267,18 +270,21 @@ static func export_atlas_pages(
 		return _error_result(ERR_INVALID_PARAMETER, "Select at least one export format.")
 
 	var atlas_texture_resource_name: String = str(options.get("atlas_texture_resource_name", "_atlas_texture"))
+	var prepared_page_items: Array[Array] = []
+	for page: Dictionary in pages:
+		var page_items_result := _build_page_items(items, page)
+		if page_items_result.get("error", FAILED) != OK:
+			return _error_result(page_items_result.get("error", FAILED), page_items_result.get("message", "Failed to prepare atlas page."))
+		var page_items: Array = page_items_result.get("items", [])
+		var build_result := _build_atlas_image_and_regions(page_items, atlas_size)
+		if build_result.get("error", FAILED) != OK:
+			return _error_result(build_result.get("error", FAILED), build_result.get("message", "Failed to validate atlas page."))
+		prepared_page_items.append(page_items)
+
 	var page_results: Array[Dictionary] = []
 	var mapping_pages: Array[Dictionary] = []
 	for page_index: int in pages.size():
-		var page: Dictionary = pages[page_index]
-		var item_indices: Array = page.get("item_indices", [])
-		var rects_by_index: Dictionary = page.get("rects_by_index", {})
-		var page_items: Array[Dictionary] = []
-
-		for item_index: int in item_indices:
-			var item: Dictionary = items[item_index].duplicate()
-			item["rect"] = rects_by_index[item_index]
-			page_items.append(item)
+		var page_items: Array = prepared_page_items[page_index]
 
 		var page_output_path := _page_output_path(output_path, page_index, pages.size())
 		var page_result: Dictionary = {}
@@ -337,6 +343,27 @@ static func export_atlas_pages(
 		"mapping_path": mapping_path,
 		"output_dir": output_dir,
 		"unplaced_indices": [],
+	}
+
+
+static func _build_page_items(items: Array[Dictionary], page: Dictionary) -> Dictionary:
+	var item_indices: Array = page.get("item_indices", [])
+	var rects_by_index: Dictionary = page.get("rects_by_index", {})
+	var page_items: Array[Dictionary] = []
+
+	for item_index: int in item_indices:
+		if item_index < 0 or item_index >= items.size():
+			return _error_result(ERR_INVALID_DATA, "Atlas page references an invalid item index: %s." % item_index)
+		if not rects_by_index.has(item_index):
+			return _error_result(ERR_INVALID_DATA, "Atlas page has no region for item index: %s." % item_index)
+		var item: Dictionary = items[item_index].duplicate()
+		item["rect"] = rects_by_index[item_index]
+		page_items.append(item)
+
+	return {
+		"error": OK,
+		"message": "",
+		"items": page_items,
 	}
 
 
